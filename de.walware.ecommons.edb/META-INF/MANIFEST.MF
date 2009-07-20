@@ -1,0 +1,13 @@
+Manifest-Version: 1.0
+Bundle-ManifestVersion: 2
+Bundle-Vendor: WalWare.de
+Bundle-Name: Embedded DB
+Bundle-SymbolicName: de.walware.ecommons.edb
+Bundle-Version: 0.1.0.qualifier
+Bundle-Activator: de.walware.ecommons.edb.internal.Activator
+Bundle-ActivationPolicy: lazy
+Bundle-RequiredExecutionEnvironment: J2SE-1.5
+Require-Bundle: org.eclipse.core.runtime,
+ derby;bundle-version="10.5.1000001"
+Export-Package: de.walware.ecommons.edb,
+ org.apache.commons.dbcp
