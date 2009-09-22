@@ -11,6 +11,7 @@ import org.apache.commons.dbcp.PoolableConnectionFactory;
 import org.apache.commons.dbcp.PoolingDataSource;
 import org.apache.commons.pool.ObjectPool;
 import org.apache.commons.pool.impl.GenericObjectPool;
+import org.apache.derby.jdbc.EmbeddedDriver;
 import org.eclipse.core.runtime.CoreException;
 import org.eclipse.core.runtime.IPath;
 import org.eclipse.core.runtime.IStatus;
@@ -28,10 +29,14 @@ public class EmbeddedDB {
 			System.setProperty("derby.system.home", location.toOSString());
 		}
 		
+		final String driverName = "org.apache.derby.jdbc.EmbeddedDriver";
+		final String dbUrl = "jdbc:derby:"+uri+";create=true";
+		Driver driver = null;
 		try {
-			final java.sql.Driver driver = (Driver) Class.forName("org.apache.derby.jdbc.EmbeddedDriver").newInstance();
+//			driver = (Driver) Class.forName(driverName, true, EmbeddedDB.class.getClassLoader()).newInstance();
+			driver = new EmbeddedDriver();
 			
-			final Connection connection = driver.connect("jdbc:derby:"+uri+";create=true", null);
+			final Connection connection = driver.connect(dbUrl, null);
 			connection.close();
 			
 //			final EmbeddedConnectionPoolDataSource dataSource = new EmbeddedConnectionPoolDataSource();
@@ -43,7 +48,14 @@ public class EmbeddedDB {
 			return new PoolingDataSource(connectionPool);
 		}
 		catch (final Exception e) {
-			throw new CoreException(new Status(IStatus.ERROR, Activator.PLUGIN_ID, -1, "An error occurred when loading embedded DB (Derby + DBCP, URI="+uri+".", e));
+			final StringBuilder message = new StringBuilder("An error occurred when loading embedded DB");
+			message.append(" (Derby + DBCP)");
+			message.append("\n\tDB ConnectionURL=").append(uri);
+			message.append("\n\tDriver Name=").append(driverName);
+			if (driver != null) {
+				message.append(", Version=").append(driver.getMajorVersion()).append(".").append(driver.getMinorVersion());
+			}
+			throw new CoreException(new Status(IStatus.ERROR, Activator.PLUGIN_ID, -1, message.toString(), e));
 		}
 	}
 	
