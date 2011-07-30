@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feature
+      id="de.walware.ecommons.edb"
+      label="Commons - Embedded Database"
+      version="0.1.1.qualifier"
+      provider-name="WalWare.de"
+      license-feature="de.walware.opensource.license"
+      license-feature-version="1.0.0">
+
+   <description url="http://www.walware.de/goto/opensource">
+      Embedded database for projects based on the Eclipse Workbench
+   </description>
+
+   <copyright>
+      Copyright (c) Stephan Wahlbrink and others 2003-2011. All rights reserved.
+   </copyright>
+
+   <license>
+      %license_text
+   </license>
+
+   <plugin
+         id="de.walware.thirdparty-org.apache.derby.core"
+         download-size="0"
+         install-size="0"
+         version="0.0.0"
+         unpack="false"/>
+
+   <plugin
+         id="de.walware.ecommons.edb"
+         download-size="0"
+         install-size="0"
+         version="0.0.0"
+         unpack="false"/>
+
+</feature>
