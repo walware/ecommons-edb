@@ -27,9 +27,19 @@ import java.util.Properties;
  * @author Rodney Waldhoff
  * @author Ignacio J. Ortega
  * @author Dirk Verbeeck
- * @version $Revision: 479137 $ $Date: 2006-11-25 08:51:48 -0700 (Sat, 25 Nov 2006) $
+ * @version $Revision: 746827 $ $Date: 2009-02-22 16:41:52 -0500 (Sun, 22 Feb 2009) $
  */
 public class DriverManagerConnectionFactory implements ConnectionFactory {
+
+    static {
+        // Related to DBCP-212
+        // Driver manager does not sync loading of drivers that use the service
+        // provider interface. This will cause issues is multi-threaded
+        // environments. This hack makes sure the drivers are loaded before
+        // DBCP tries to use them.
+        DriverManager.getDrivers();
+    }
+
 
     /**
      * Constructor for DriverManagerConnectionFactory.

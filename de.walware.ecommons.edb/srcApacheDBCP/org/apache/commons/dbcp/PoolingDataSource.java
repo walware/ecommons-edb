@@ -40,7 +40,7 @@ import org.apache.commons.pool.ObjectPool;
  * @author Glenn L. Nielsen
  * @author James House
  * @author Dirk Verbeeck
- * @version $Revision: 479137 $ $Date: 2006-11-25 08:51:48 -0700 (Sat, 25 Nov 2006) $
+ * @version $Revision: 895844 $ $Date: 2010-01-04 20:50:04 -0500 (Mon, 04 Jan 2010) $
  */
 public class PoolingDataSource implements DataSource {
 
@@ -84,6 +84,16 @@ public class PoolingDataSource implements DataSource {
     public void setAccessToUnderlyingConnectionAllowed(boolean allow) {
         this.accessToUnderlyingConnectionAllowed = allow;
     }
+
+    /* JDBC_4_ANT_KEY_BEGIN */
+    public boolean isWrapperFor(Class<?> iface) throws SQLException {
+        return false;
+    }
+
+    public <T> T unwrap(Class<T> iface) throws SQLException {
+        throw new SQLException("PoolingDataSource is not a wrapper.");
+    }
+    /* JDBC_4_ANT_KEY_END */
     
     //--- DataSource methods -----------------------------------------
 
@@ -177,10 +187,11 @@ public class PoolingDataSource implements DataSource {
         }
     
         public void close() throws SQLException {
-            checkOpen();
-            this.delegate.close();
-            this.delegate = null;
-            super.setDelegate(null);
+            if (delegate != null) {
+                this.delegate.close();
+                this.delegate = null;
+                super.setDelegate(null);
+            }
         }
 
         public boolean isClosed() throws SQLException {
@@ -202,12 +213,12 @@ public class PoolingDataSource implements DataSource {
 
         public Statement createStatement() throws SQLException {
             checkOpen();
-            return delegate.createStatement();
+            return new DelegatingStatement(this, delegate.createStatement());
         }
 
         public Statement createStatement(int resultSetType, int resultSetConcurrency) throws SQLException {
             checkOpen();
-            return delegate.createStatement(resultSetType, resultSetConcurrency);
+            return new DelegatingStatement(this, delegate.createStatement(resultSetType, resultSetConcurrency));
         }
 
         public boolean innermostDelegateEquals(Connection c) {
@@ -264,16 +275,16 @@ public class PoolingDataSource implements DataSource {
                 return true;
             }
             // Use superclass accessor to skip access test
-            Connection delegate = super.getInnermostDelegate();
-            if (delegate == null) {
+            Connection conn = super.getInnermostDelegate();
+            if (conn == null) {
                 return false;
             }
             if (obj instanceof DelegatingConnection) {    
                 DelegatingConnection c = (DelegatingConnection) obj;
-                return c.innermostDelegateEquals(delegate);
+                return c.innermostDelegateEquals(conn);
             }
             else {
-                return delegate.equals(obj);
+                return conn.equals(obj);
             }
         }
 
@@ -289,22 +300,22 @@ public class PoolingDataSource implements DataSource {
 
         public CallableStatement prepareCall(String sql) throws SQLException {
             checkOpen();
-            return delegate.prepareCall(sql);
+            return new DelegatingCallableStatement(this, delegate.prepareCall(sql));
         }
 
         public CallableStatement prepareCall(String sql, int resultSetType, int resultSetConcurrency) throws SQLException {
             checkOpen();
-            return delegate.prepareCall(sql, resultSetType, resultSetConcurrency);
+            return new DelegatingCallableStatement(this, delegate.prepareCall(sql, resultSetType, resultSetConcurrency));
         }
 
         public PreparedStatement prepareStatement(String sql) throws SQLException {
             checkOpen();
-            return delegate.prepareStatement(sql);
+            return new DelegatingPreparedStatement(this, delegate.prepareStatement(sql));
         }
 
         public PreparedStatement prepareStatement(String sql, int resultSetType, int resultSetConcurrency) throws SQLException {
             checkOpen();
-            return delegate.prepareStatement(sql, resultSetType, resultSetConcurrency);
+            return new DelegatingPreparedStatement(this, delegate.prepareStatement(sql, resultSetType, resultSetConcurrency));
         }
 
         public void rollback() throws SQLException {
@@ -339,15 +350,10 @@ public class PoolingDataSource implements DataSource {
 
         public String toString() {
             if (delegate == null){
-                return null;
+                return "NULL";
             }
             return delegate.toString();
         }
-
-        // ------------------- JDBC 3.0 -----------------------------------------
-        // Will be commented by the build process on a JDBC 2.0 system
-
-/* JDBC_3_ANT_KEY_BEGIN */
 
         public int getHoldability() throws SQLException {
             checkOpen();
@@ -381,35 +387,33 @@ public class PoolingDataSource implements DataSource {
 
         public Statement createStatement(int resultSetType, int resultSetConcurrency, int resultSetHoldability) throws SQLException {
             checkOpen();
-            return delegate.createStatement(resultSetType, resultSetConcurrency, resultSetHoldability);
+            return new DelegatingStatement(this, delegate.createStatement(resultSetType, resultSetConcurrency, resultSetHoldability));
         }
 
         public CallableStatement prepareCall(String sql, int resultSetType, int resultSetConcurrency, int resultSetHoldability) throws SQLException {
             checkOpen();
-            return delegate.prepareCall(sql, resultSetType, resultSetConcurrency, resultSetHoldability);
+            return new DelegatingCallableStatement(this, delegate.prepareCall(sql, resultSetType, resultSetConcurrency, resultSetHoldability));
         }
 
         public PreparedStatement prepareStatement(String sql, int autoGeneratedKeys) throws SQLException {
             checkOpen();
-            return delegate.prepareStatement(sql, autoGeneratedKeys);
+            return new DelegatingPreparedStatement(this, delegate.prepareStatement(sql, autoGeneratedKeys));
         }
 
         public PreparedStatement prepareStatement(String sql, int resultSetType, int resultSetConcurrency, int resultSetHoldability) throws SQLException {
             checkOpen();
-            return delegate.prepareStatement(sql, resultSetType, resultSetConcurrency, resultSetHoldability);
+            return new DelegatingPreparedStatement(this,delegate.prepareStatement(sql, resultSetType, resultSetConcurrency, resultSetHoldability));
         }
 
         public PreparedStatement prepareStatement(String sql, int[] columnIndexes) throws SQLException {
             checkOpen();
-            return delegate.prepareStatement(sql, columnIndexes);
+            return new DelegatingPreparedStatement(this, delegate.prepareStatement(sql, columnIndexes));
         }
 
         public PreparedStatement prepareStatement(String sql, String[] columnNames) throws SQLException {
             checkOpen();
-            return delegate.prepareStatement(sql, columnNames);
+            return new DelegatingPreparedStatement(this, delegate.prepareStatement(sql, columnNames));
         }
-
-/* JDBC_3_ANT_KEY_END */
 
         /**
          * @see org.apache.commons.dbcp.DelegatingConnection#getDelegate()

@@ -76,14 +76,15 @@ import org.apache.commons.pool.impl.GenericObjectPool;
  *
  * <p>
  * The <a href="package-summary.html">package documentation</a> contains an 
- * example using catalina and JNDI and it also contains a non-JNDI example. 
+ * example using Apache Tomcat and JNDI and it also contains a non-JNDI example. 
  * </p>
  *
  * @author John D. McNally
- * @version $Revision: 500687 $ $Date: 2007-01-27 16:33:47 -0700 (Sat, 27 Jan 2007) $
+ * @version $Revision: 907428 $ $Date: 2010-02-07 09:59:08 -0500 (Sun, 07 Feb 2010) $
  */
 public abstract class InstanceKeyDataSource
         implements DataSource, Referenceable, Serializable {
+    private static final long serialVersionUID = -4243533936955098795L;
     private static final String GET_CONNECTION_CALLED 
             = "A Connection was already requested from this source, " 
             + "further initialization is not allowed.";
@@ -93,42 +94,52 @@ public abstract class InstanceKeyDataSource
     * Internal constant to indicate the level is not set. 
     */
     protected static final int UNKNOWN_TRANSACTIONISOLATION = -1;
+    
+    /** Guards property setters - once true, setters throw IllegalStateException */
+    private volatile boolean getConnectionCalled = false;
 
-    private boolean getConnectionCalled = false;
-
-    private ConnectionPoolDataSource cpds = null;
+    /** Underlying source of PooledConnections */
+    private ConnectionPoolDataSource dataSource = null;
+    
     /** DataSource Name used to find the ConnectionPoolDataSource */
     private String dataSourceName = null;
+    
+    // Default connection properties
     private boolean defaultAutoCommit = false;
     private int defaultTransactionIsolation = UNKNOWN_TRANSACTIONISOLATION;
-    private int maxActive = GenericObjectPool.DEFAULT_MAX_ACTIVE;
-    private int maxIdle = GenericObjectPool.DEFAULT_MAX_IDLE;
-    private int maxWait = (int)Math.min((long)Integer.MAX_VALUE,
-        GenericObjectPool.DEFAULT_MAX_WAIT);
     private boolean defaultReadOnly = false;
+    
     /** Description */
     private String description = null;
+    
     /** Environment that may be used to set up a jndi initial context. */
     Properties jndiEnvironment = null;
+    
     /** Login TimeOut in seconds */
     private int loginTimeout = 0;
+    
     /** Log stream */
     private PrintWriter logWriter = null;
+    
+    // Pool properties
     private boolean _testOnBorrow = GenericObjectPool.DEFAULT_TEST_ON_BORROW;
     private boolean _testOnReturn = GenericObjectPool.DEFAULT_TEST_ON_RETURN;
     private int _timeBetweenEvictionRunsMillis = (int)
-        Math.min((long)Integer.MAX_VALUE,
+        Math.min(Integer.MAX_VALUE,
                  GenericObjectPool.DEFAULT_TIME_BETWEEN_EVICTION_RUNS_MILLIS);
     private int _numTestsPerEvictionRun = 
         GenericObjectPool.DEFAULT_NUM_TESTS_PER_EVICTION_RUN;
     private int _minEvictableIdleTimeMillis = (int)
-    Math.min((long)Integer.MAX_VALUE,
+    Math.min(Integer.MAX_VALUE,
              GenericObjectPool.DEFAULT_MIN_EVICTABLE_IDLE_TIME_MILLIS);
     private boolean _testWhileIdle = GenericObjectPool.DEFAULT_TEST_WHILE_IDLE;
     private String validationQuery = null;
     private boolean rollbackAfterValidation = false;
+    
+    /** true iff one of the setters for testOnBorrow, testOnReturn, testWhileIdle has been called. */
     private boolean testPositionSet = false;
 
+    /** Instance key */
     protected String instanceKey = null;
 
     /**
@@ -150,9 +161,21 @@ public abstract class InstanceKeyDataSource
     }
 
     /**
-     * Close pool being maintained by this datasource.
+     * Close the connection pool being maintained by this datasource.
      */
     public abstract void close() throws Exception;
+    
+    protected abstract PooledConnectionManager getConnectionManager(UserPassKey upkey);
+
+    /* JDBC_4_ANT_KEY_BEGIN */
+    public boolean isWrapperFor(Class<?> iface) throws SQLException {
+        return false;
+    }
+
+    public <T> T unwrap(Class<T> iface) throws SQLException {
+        throw new SQLException("InstanceKeyDataSource is not a wrapper.");
+    }
+    /* JDBC_4_ANT_KEY_END */
 
     // -------------------------------------------------------------------
     // Properties
@@ -164,7 +187,7 @@ public abstract class InstanceKeyDataSource
      * @return value of connectionPoolDataSource.
      */
     public ConnectionPoolDataSource getConnectionPoolDataSource() {
-        return cpds;
+        return dataSource;
     }
     
     /**
@@ -179,12 +202,12 @@ public abstract class InstanceKeyDataSource
             throw new IllegalStateException(
                 "Cannot set the DataSource, if JNDI is used.");
         }
-        if (cpds != null) 
+        if (dataSource != null) 
         {
             throw new IllegalStateException(
                 "The CPDS has already been set. It cannot be altered.");
         }
-        cpds = v;
+        dataSource = v;
         instanceKey = InstanceKeyObjectFactory.registerNewInstance(this);
     }
 
@@ -208,7 +231,7 @@ public abstract class InstanceKeyDataSource
      */
     public void setDataSourceName(String v) {
         assertInitializationAllowed();
-        if (cpds != null) {
+        if (dataSource != null) {
             throw new IllegalStateException(
                 "Cannot set the JNDI name for the DataSource, if already " +
                 "set using setConnectionPoolDataSource.");
@@ -601,8 +624,8 @@ public abstract class InstanceKeyDataSource
      * The SQL query that will be used to validate connections from this pool
      * before returning them to the caller.  If specified, this query
      * <strong>MUST</strong> be an SQL SELECT statement that returns at least
-     * one row.  Default behavior is to test the connection when it is
-     * borrowed.
+     * one row. If none of the properties, testOnBorow, testOnReturn, testWhileIdle
+     * have been previously set, calling this method sets testOnBorrow to true.
      */
     public void setValidationQuery(String validationQuery) {
         assertInitializationAllowed();
@@ -654,7 +677,16 @@ public abstract class InstanceKeyDataSource
     }
 
     /**
-     * Attempt to establish a database connection.
+     * Attempt to retrieve a database connection using {@link #getPooledConnectionAndInfo(String, String)}
+     * with the provided username and password.  The password on the {@link PooledConnectionAndInfo}
+     * instance returned by <code>getPooledConnectionAndInfo</code> is compared to the <code>password</code>
+     * parameter.  If the comparison fails, a database connection using the supplied username and password
+     * is attempted.  If the connection attempt fails, an SQLException is thrown, indicating that the given password
+     * did not match the password used to create the pooled connection.  If the connection attempt succeeds, this
+     * means that the database password has been changed.  In this case, the <code>PooledConnectionAndInfo</code>
+     * instance retrieved with the old password is destroyed and the <code>getPooledConnectionAndInfo</code> is
+     * repeatedly invoked until a <code>PooledConnectionAndInfo</code> instance with the new password is returned. 
+     * 
      */
     public Connection getConnection(String username, String password)
             throws SQLException {        
@@ -682,16 +714,71 @@ public abstract class InstanceKeyDataSource
         }
         
         if (!(null == password ? null == info.getPassword() 
-                : password.equals(info.getPassword()))) {
-            closeDueToException(info);
-            throw new SQLException("Given password did not match password used"
-                                   + " to create the PooledConnection.");
+                : password.equals(info.getPassword()))) {  // Password on PooledConnectionAndInfo does not match
+            try { // See if password has changed by attempting connection
+                testCPDS(username, password);
+            } catch (SQLException ex) {
+                // Password has not changed, so refuse client, but return connection to the pool
+                closeDueToException(info);
+                throw new SQLException("Given password did not match password used"
+                                       + " to create the PooledConnection.");
+            } catch (javax.naming.NamingException ne) {
+                throw (SQLException) new SQLException(
+                        "NamingException encountered connecting to database").initCause(ne);
+            }
+            /*
+             * Password must have changed -> destroy connection and keep retrying until we get a new, good one,
+             * destroying any idle connections with the old passowrd as we pull them from the pool.
+             */
+            final UserPassKey upkey = info.getUserPassKey();
+            final PooledConnectionManager manager = getConnectionManager(upkey);
+            manager.invalidate(info.getPooledConnection()); // Destroy and remove from pool
+            manager.setPassword(upkey.getPassword()); // Reset the password on the factory if using CPDSConnectionFactory
+            info = null;
+            for (int i = 0; i < 10; i++) { // Bound the number of retries - only needed if bad instances return 
+                try {
+                    info = getPooledConnectionAndInfo(username, password);
+                } catch (NoSuchElementException e) {
+                    closeDueToException(info);
+                    throw new SQLNestedException("Cannot borrow connection from pool", e);
+                } catch (RuntimeException e) {
+                    closeDueToException(info);
+                    throw e;
+                } catch (SQLException e) {            
+                    closeDueToException(info);
+                    throw e;
+                } catch (Exception e) {
+                    closeDueToException(info);
+                    throw new SQLNestedException("Cannot borrow connection from pool", e);
+                }
+                if (info != null && password.equals(info.getPassword())) {
+                    break;
+                } else {
+                    if (info != null) {
+                        manager.invalidate(info.getPooledConnection());
+                    }
+                    info = null;
+                }
+            }  
+            if (info == null) {
+                throw new SQLException("Cannot borrow connection from pool - password change failure.");
+            }
         }
 
-        Connection con = info.getPooledConnection().getConnection();        
-        setupDefaults(con, username);
-        con.clearWarnings();
-        return con;
+        Connection con = info.getPooledConnection().getConnection();
+        try { 
+            setupDefaults(con, username);
+            con.clearWarnings();
+            return con;
+        } catch (SQLException ex) {  
+            try {
+                con.close();
+            } catch (Exception exc) { 
+                getLogWriter().println(
+                     "ignoring exception during close: " + exc);
+            }
+            throw ex;
+        }
     }
 
     protected abstract PooledConnectionAndInfo 
@@ -720,7 +807,7 @@ public abstract class InstanceKeyDataSource
         testCPDS(String username, String password)
         throws javax.naming.NamingException, SQLException {
         // The source of physical db connections
-        ConnectionPoolDataSource cpds = this.cpds;
+        ConnectionPoolDataSource cpds = this.dataSource;
         if (cpds == null) {            
             Context ctx = null;
             if (jndiEnvironment == null) {

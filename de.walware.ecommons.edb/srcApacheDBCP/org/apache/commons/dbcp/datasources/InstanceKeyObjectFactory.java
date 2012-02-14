@@ -37,12 +37,12 @@ import javax.naming.spi.ObjectFactory;
  * A JNDI ObjectFactory which creates <code>SharedPoolDataSource</code>s
  * or <code>PerUserPoolDataSource</code>s
  *
- * @version $Revision: 479137 $ $Date: 2006-11-25 08:51:48 -0700 (Sat, 25 Nov 2006) $
+ * @version $Revision: 814246 $ $Date: 2009-09-12 18:44:58 -0400 (Sat, 12 Sep 2009) $
  */
 abstract class InstanceKeyObjectFactory
     implements ObjectFactory
 {
-    private static Map instanceMap = new HashMap();
+    private static final Map instanceMap = new HashMap();
 
     synchronized static String registerNewInstance(InstanceKeyDataSource ds) {
         int max = 0;
@@ -171,8 +171,8 @@ abstract class InstanceKeyObjectFactory
 
         ra = ref.get("testOnBorrow");
         if (ra != null && ra.getContent() != null) {
-            ikds.setTestOnBorrow(
-                Boolean.getBoolean(ra.getContent().toString()));
+            ikds.setTestOnBorrow(Boolean.valueOf(
+                ra.getContent().toString()).booleanValue());
         }
 
         ra = ref.get("testOnReturn");

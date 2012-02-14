@@ -20,11 +20,13 @@ package org.apache.commons.dbcp.datasources;
 import java.io.Serializable;
 
 /**
- * @version $Revision: 479137 $ $Date: 2006-11-25 08:51:48 -0700 (Sat, 25 Nov 2006) $
+ * @version $Revision: 907288 $ $Date: 2010-02-06 14:42:58 -0500 (Sat, 06 Feb 2010) $
  */
 class PoolKey implements Serializable {
-    private String datasourceName;
-    private String username;
+    private static final long serialVersionUID = 2252771047542484533L;
+
+    private final String datasourceName;
+    private final String username;
     
     PoolKey(String datasourceName, String username) {
         this.datasourceName = datasourceName;

@@ -14,7 +14,7 @@
  See the License for the specific language governing permissions and
  limitations under the License.
 -->
-<!-- $Id: package.html 479268 2006-11-26 04:09:13Z niallp $ -->
+<!-- $Id: package.html 883890 2009-11-24 21:45:27Z sebb $ -->
 <html>
    <head>
       <title>Package Documentation for org.apache.commons.dbcp</title>
@@ -57,7 +57,7 @@
          It implements the factory and lifecycle methods of
          {@link org.apache.commons.pool.PoolableObjectFactory}
          for {@link java.sql.Connection}s.  But it doesn't create the actual database
-         {@link java.sql.Connection}s itself, if uses a
+         {@link java.sql.Connection}s itself, it uses a
          {@link org.apache.commons.dbcp.ConnectionFactory} for that.
          The {@link org.apache.commons.dbcp.PoolableConnectionFactory} will take
          {@link java.sql.Connection}s created by the {@link org.apache.commons.dbcp.ConnectionFactory}
@@ -99,7 +99,7 @@
           <li>
             An empty and factory-less {@link org.apache.commons.pool.ObjectPool}
             in which the {@link java.sql.Connection}s will be stored.
-            <br>
+            <br></br>
             When you pass an {@link org.apache.commons.pool.ObjectPool} into the
             {@link org.apache.commons.dbcp.PoolableConnectionFactory}, it will
             automatically register itself as the {@link org.apache.commons.pool.PoolableObjectFactory}

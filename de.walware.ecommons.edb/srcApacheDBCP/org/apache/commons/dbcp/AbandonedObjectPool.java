@@ -31,20 +31,19 @@ import org.apache.commons.pool.impl.GenericObjectPool;
  * abandoned db connections recovered.
  *                                                                        
  * @author Glenn L. Nielsen
- * @version $Revision: 482015 $ $Date: 2006-12-03 19:22:09 -0700 (Sun, 03 Dec 2006) $
- * @deprecated This will be removed in a future version of DBCP.
+ * @version $Revision: 899987 $ $Date: 2010-01-16 11:51:16 -0500 (Sat, 16 Jan 2010) $
  */
 public class AbandonedObjectPool extends GenericObjectPool {
 
     /** 
      * DBCP AbandonedConfig 
      */
-    private AbandonedConfig config = null;
+    private final AbandonedConfig config;
     
     /**
      * A list of connections in use
      */
-    private List trace = new ArrayList();
+    private final List trace = new ArrayList();
 
     /**
      * Create an ObjectPool which tracks db connections.
@@ -56,10 +55,6 @@ public class AbandonedObjectPool extends GenericObjectPool {
                                AbandonedConfig config) {
         super(factory);
         this.config = config;
-        System.out.println("AbandonedObjectPool is used (" + this + ")");
-        System.out.println("   LogAbandoned: " + config.getLogAbandoned());
-        System.out.println("   RemoveAbandoned: " + config.getRemoveAbandoned());
-        System.out.println("   RemoveAbandonedTimeout: " + config.getRemoveAbandonedTimeout());
     }
 
     /**

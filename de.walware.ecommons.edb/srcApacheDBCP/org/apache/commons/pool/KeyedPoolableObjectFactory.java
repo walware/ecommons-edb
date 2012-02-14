@@ -5,9 +5,9 @@
  * The ASF licenses this file to You under the Apache License, Version 2.0
  * (the "License"); you may not use this file except in compliance with
  * the License.  You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -65,19 +65,15 @@ package org.apache.commons.pool;
  * </p>
  *
  * @see KeyedObjectPool
- * 
+ *
  * @author Rodney Waldhoff
  * @author Sandy McArthur
- * @version $Revision: 480413 $ $Date: 2006-11-28 22:16:05 -0700 (Tue, 28 Nov 2006) $
+ * @version $Revision: 791676 $ $Date: 2009-07-06 19:29:56 -0700 (Mon, 06 Jul 2009) $
  * @since Pool 1.0
  */
 public interface KeyedPoolableObjectFactory {
     /**
      * Create an instance that can be served by the pool.
-     * Instances returned from this method should be in the
-     * same state as if they had been
-     * {@link #activateObject activated}. They will not be
-     * activated before being served by the pool.
      *
      * @param key the key used when constructing the object
      * @return an instance that can be served by the pool.

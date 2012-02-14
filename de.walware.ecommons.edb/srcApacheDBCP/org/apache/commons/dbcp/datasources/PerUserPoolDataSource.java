@@ -24,38 +24,47 @@ import java.sql.SQLException;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.Map;
+import java.util.NoSuchElementException;
 
 import javax.naming.NamingException;
 import javax.naming.Reference;
 import javax.naming.StringRefAddr;
 import javax.sql.ConnectionPoolDataSource;
 
-import org.apache.commons.pool.ObjectPool;
-import org.apache.commons.pool.impl.GenericObjectPool;
 import org.apache.commons.dbcp.SQLNestedException;
 
+import org.apache.commons.pool.ObjectPool;
+import org.apache.commons.pool.impl.GenericObjectPool;
+
 /**
- * <p>
- * A pooling <code>DataSource</code> appropriate for deployment within
+ * <p>A pooling <code>DataSource</code> appropriate for deployment within
  * J2EE environment.  There are many configuration options, most of which are
  * defined in the parent class.  This datasource uses individual pools per 
  * user, and some properties can be set specifically for a given user, if the 
  * deployment environment can support initialization of mapped properties.
  * So for example, a pool of admin or write-access Connections can be
  * guaranteed a certain number of connections, separate from a maximum
- * set for users with read-only connections. 
- * </p>
+ * set for users with read-only connections.</p>
+ * 
+ * <p>User passwords can be changed without re-initializing the datasource.
+ * When a <code>getConnection(username, password)</code> request is processed 
+ * with a password that is different from those used to create connections in the
+ * pool associated with <code>username</code>, an attempt is made to create a
+ * new connection using the supplied password and if this succeeds, the existing
+ * pool is cleared and a new pool is created for connections using the new password.</p>
+ * 
  *
  * @author John D. McNally
- * @version $Revision: 500687 $ $Date: 2007-01-27 16:33:47 -0700 (Sat, 27 Jan 2007) $
+ * @version $Revision: 907288 $ $Date: 2010-02-06 14:42:58 -0500 (Sat, 06 Feb 2010) $
  */
 public class PerUserPoolDataSource
     extends InstanceKeyDataSource {
-    private static final Map poolKeys = new HashMap();
+
+    private static final long serialVersionUID = -3104731034410444060L;
 
     private int defaultMaxActive = GenericObjectPool.DEFAULT_MAX_ACTIVE;
     private int defaultMaxIdle = GenericObjectPool.DEFAULT_MAX_IDLE;
-    private int defaultMaxWait = (int)Math.min((long)Integer.MAX_VALUE,
+    private int defaultMaxWait = (int)Math.min(Integer.MAX_VALUE,
         GenericObjectPool.DEFAULT_MAX_WAIT);
     Map perUserDefaultAutoCommit = null;    
     Map perUserDefaultTransactionIsolation = null;
@@ -64,7 +73,10 @@ public class PerUserPoolDataSource
     Map perUserMaxWait = null;
     Map perUserDefaultReadOnly = null;    
 
-    private transient Map pools = new HashMap();
+    /**
+     * Map to keep track of Pools for a given user
+     */
+    private transient Map /* <PoolKey, PooledConnectionManager> */ managers = new HashMap();
 
     /**
      * Default no-arg constructor for Serialization
@@ -73,19 +85,13 @@ public class PerUserPoolDataSource
     }
 
     /**
-     * Close all pools in the given Map.
-     */
-    private static void close(Map poolMap) {
-    }
-
-    /**
      * Close pool(s) being maintained by this datasource.
      */
     public void close() {
-        for (Iterator poolIter = pools.values().iterator();
+        for (Iterator poolIter = managers.values().iterator();
              poolIter.hasNext();) {    
             try {
-                ((ObjectPool) poolIter.next()).close();
+              ((CPDSConnectionFactory) poolIter.next()).getPool().close();
             } catch (Exception closePoolException) {
                     //ignore and try to close others.
             }
@@ -339,7 +345,7 @@ public class PerUserPoolDataSource
      * Get the number of active connections in the pool for a given user.
      */
     public int getNumActive(String username, String password) {
-        ObjectPool pool = (ObjectPool)pools.get(getPoolKey(username));
+        ObjectPool pool = getPool(getPoolKey(username,password));
         return (pool == null) ? 0 : pool.getNumActive();
     }
 
@@ -354,7 +360,7 @@ public class PerUserPoolDataSource
      * Get the number of idle connections in the pool for a given user.
      */
     public int getNumIdle(String username, String password) {
-        ObjectPool pool = (ObjectPool)pools.get(getPoolKey(username));
+        ObjectPool pool = getPool(getPoolKey(username,password));
         return (pool == null) ? 0 : pool.getNumIdle();
     }
 
@@ -362,30 +368,60 @@ public class PerUserPoolDataSource
     // ----------------------------------------------------------------------
     // Inherited abstract methods
 
-    protected synchronized PooledConnectionAndInfo 
+    protected PooledConnectionAndInfo 
         getPooledConnectionAndInfo(String username, String password)
         throws SQLException {
 
-        PoolKey key = getPoolKey(username);
-        Object pool = pools.get(key);
-        if (pool == null) {
-            try {
-                registerPool(username, password);
-                pool = pools.get(key);
-            } catch (NamingException e) {
-                throw new SQLNestedException("RegisterPool failed", e);
+        final PoolKey key = getPoolKey(username,password);
+        ObjectPool pool;
+        PooledConnectionManager manager;
+        synchronized(this) {
+            manager = (PooledConnectionManager) managers.get(key);
+            if (manager == null) {
+                try {
+                    registerPool(username, password);
+                    manager = (PooledConnectionManager) managers.get(key);
+                } catch (NamingException e) {
+                    throw new SQLNestedException("RegisterPool failed", e);
+                }
             }
+            pool = ((CPDSConnectionFactory) manager).getPool();
         }
 
         PooledConnectionAndInfo info = null;
         try {
-            info = (PooledConnectionAndInfo)((ObjectPool) pool).borrowObject();
+            info = (PooledConnectionAndInfo) pool.borrowObject();
+        }
+        catch (NoSuchElementException ex) {
+            throw new SQLNestedException(
+                    "Could not retrieve connection info from pool", ex);
         }
         catch (Exception e) {
-            throw new SQLNestedException(
-                "Could not retrieve connection info from pool", e);
+            // See if failure is due to CPDSConnectionFactory authentication failure
+            try {
+                testCPDS(username, password);
+            } catch (Exception ex) {
+                throw (SQLException) new SQLException(
+                        "Could not retrieve connection info from pool").initCause(ex);
+            }
+            // New password works, so kill the old pool, create a new one, and borrow
+            manager.closePool(username);
+            synchronized (this) {
+                managers.remove(key);
+            }
+            try {
+                registerPool(username, password);
+                pool = getPool(key);
+            } catch (NamingException ne) {
+                throw new SQLNestedException("RegisterPool failed", ne);
+            }
+            try {
+                info = (PooledConnectionAndInfo)((ObjectPool) pool).borrowObject();
+            } catch (Exception ex) {
+                throw (SQLException) new SQLException(
+                "Could not retrieve connection info from pool").initCause(ex);
+            }
         }
-        
         return info;
     }
 
@@ -415,11 +451,22 @@ public class PerUserPoolDataSource
             }
         }
 
-        con.setAutoCommit(defaultAutoCommit);
+        if (con.getAutoCommit() != defaultAutoCommit) {
+            con.setAutoCommit(defaultAutoCommit);
+        }
+
         if (defaultTransactionIsolation != UNKNOWN_TRANSACTIONISOLATION) {
             con.setTransactionIsolation(defaultTransactionIsolation);
         }
-        con.setReadOnly(defaultReadOnly);
+
+        if (con.isReadOnly() != defaultReadOnly) {
+            con.setReadOnly(defaultReadOnly);
+        }
+    }
+    
+    protected PooledConnectionManager getConnectionManager(UserPassKey upkey) {
+        return (PooledConnectionManager) managers.get(getPoolKey(
+                upkey.getUsername(), upkey.getPassword()));
     }
 
     /**
@@ -433,24 +480,9 @@ public class PerUserPoolDataSource
         ref.add(new StringRefAddr("instanceKey", instanceKey));
         return ref;
     }
-
-    private PoolKey getPoolKey(String username) {
-        PoolKey key = null;
-        String dsName = getDataSourceName();
-        Map dsMap = (Map) poolKeys.get(dsName);
-        if (dsMap != null) {
-            key = (PoolKey) dsMap.get(username);
-        }
-        
-        if (key == null) {
-            key = new PoolKey(dsName, username);
-            if (dsMap == null) {
-                dsMap = new HashMap();
-                poolKeys.put(dsName, dsMap);
-            }
-            dsMap.put(username, key);
-        }
-        return key;
+    
+    private PoolKey getPoolKey(String username, String password) { 
+        return new PoolKey(getDataSourceName(), username); 
     }
 
     private synchronized void registerPool(
@@ -486,11 +518,13 @@ public class PerUserPoolDataSource
         // Set up the factory we will use (passing the pool associates
         // the factory with the pool, so we do not have to do so
         // explicitly)
-        new CPDSConnectionFactory(cpds, pool, getValidationQuery(),
-                                  isRollbackAfterValidation(), 
-                                  username, password);
+        CPDSConnectionFactory factory = new CPDSConnectionFactory(cpds, pool, getValidationQuery(),
+                isRollbackAfterValidation(), username, password);
            
-        pools.put(getPoolKey(username), pool);
+        Object old = managers.put(getPoolKey(username,password), factory);
+        if (old != null) {
+            throw new IllegalStateException("Pool already contains an entry for this user/password: "+username);
+        }
     }
 
     /**
@@ -508,11 +542,23 @@ public class PerUserPoolDataSource
             PerUserPoolDataSource oldDS = (PerUserPoolDataSource)
                 new PerUserPoolDataSourceFactory()
                     .getObjectInstance(getReference(), null, null, null);
-            this.pools = oldDS.pools;
+            this.managers = oldDS.managers;
         }
         catch (NamingException e)
         {
             throw new IOException("NamingException: " + e);
         }
+    }
+    
+    /**
+     * Returns the object pool associated with the given PoolKey.
+     * 
+     * @param key PoolKey identifying the pool 
+     * @return the GenericObjectPool pooling connections for the username and datasource
+     * specified by the PoolKey
+     */
+    private GenericObjectPool getPool(PoolKey key) {
+        CPDSConnectionFactory mgr = (CPDSConnectionFactory) managers.get(key);
+        return mgr == null ? null : (GenericObjectPool) mgr.getPool();
     }
 }

@@ -18,8 +18,9 @@
 package org.apache.commons.dbcp.cpdsadapter;
 
 import java.util.Hashtable;
-import  java.io.PrintWriter;
-import  java.io.Serializable;
+import java.util.Properties;
+import java.io.PrintWriter;
+import java.io.Serializable;
 import java.sql.DriverManager;
 import java.sql.SQLException;
 import javax.sql.PooledConnection;
@@ -81,12 +82,15 @@ import org.apache.commons.pool.impl.GenericKeyedObjectPool;
  * </p>
  *
  * @author John D. McNally
- * @version $Revision: 500687 $ $Date: 2007-01-27 16:33:47 -0700 (Sat, 27 Jan 2007) $
+ * @version $Revision: 896266 $ $Date: 2010-01-05 18:20:12 -0500 (Tue, 05 Jan 2010) $
  */
 public class DriverAdapterCPDS
     implements ConnectionPoolDataSource, Referenceable, Serializable, 
                ObjectFactory {
-                   
+  
+    private static final long serialVersionUID = -4820523787212147844L;
+
+
     private static final String GET_CONNECTION_CALLED 
             = "A PooledConnection was already requested from this source, " 
             + "further initialization is not allowed.";
@@ -104,8 +108,8 @@ public class DriverAdapterCPDS
 
     /** Login TimeOut in seconds */
     private int loginTimeout;
-    /** Log stream */
-    private PrintWriter logWriter = null;
+    /** Log stream. NOT USED */
+    private transient PrintWriter logWriter = null;
 
     // PreparedStatement pool properties
     private boolean poolPreparedStatements;
@@ -116,8 +120,22 @@ public class DriverAdapterCPDS
     private int _minEvictableIdleTimeMillis = -1;
     private int _maxPreparedStatements = -1;
 
-    private boolean getConnectionCalled = false;
+    /** Whether or not getConnection has been called */
+    private volatile boolean getConnectionCalled = false;
+    
+    /** Connection properties passed to JDBC Driver */
+    private Properties connectionProperties = null;
 
+    static {
+        // Attempt to prevent deadlocks - see DBCP - 272
+        DriverManager.getDrivers();
+    }
+
+    /** 
+     * Controls access to the underlying connection 
+     */
+    private boolean accessToUnderlyingConnectionAllowed = false; 
+    
     /**
      * Default no-arg constructor for Serialization
      */
@@ -134,9 +152,11 @@ public class DriverAdapterCPDS
                      
     /**
      * Attempt to establish a database connection.
+     * @param username name to be used for the connection
+     * @param pass password to be used fur the connection
      */
     public PooledConnection getPooledConnection(String username, 
-                                                String password)
+                                                String pass)
             throws SQLException {
         getConnectionCalled = true;
         /*
@@ -174,15 +194,35 @@ public class DriverAdapterCPDS
         // Workaround for buggy WebLogic 5.1 classloader - ignore the
         // exception upon first invocation.
         try {
-            return new PooledConnectionImpl(
-                    DriverManager.getConnection(getUrl(), username, password), 
-                    stmtPool );
+            PooledConnectionImpl pci = null;
+            if (connectionProperties != null) {
+                connectionProperties.put("user", username);
+                connectionProperties.put("password", pass);
+                pci = new PooledConnectionImpl(
+                        DriverManager.getConnection(getUrl(), connectionProperties), 
+                        stmtPool);
+            } else {
+                pci = new PooledConnectionImpl(
+                        DriverManager.getConnection(getUrl(), username, pass), 
+                        stmtPool);
+            }
+            pci.setAccessToUnderlyingConnectionAllowed(isAccessToUnderlyingConnectionAllowed());
+            return pci;
         }
         catch (ClassCircularityError e)
         {
-            return new PooledConnectionImpl(
-                    DriverManager.getConnection(getUrl(), username, password), 
-                    stmtPool );
+            PooledConnectionImpl pci = null;
+            if (connectionProperties != null) {
+                pci = new PooledConnectionImpl(
+                        DriverManager.getConnection(getUrl(), connectionProperties), 
+                        stmtPool);
+            } else {
+                pci = new PooledConnectionImpl(
+                        DriverManager.getConnection(getUrl(), username, pass), 
+                        stmtPool);
+            }
+            pci.setAccessToUnderlyingConnectionAllowed(isAccessToUnderlyingConnectionAllowed());
+            return pci;
         }
     }
 
@@ -264,8 +304,8 @@ public class DriverAdapterCPDS
 
                 ra = ref.get("poolPreparedStatements");
                 if (ra != null && ra.getContent() != null) {
-                    setPoolPreparedStatements(
-                        Boolean.getBoolean(ra.getContent().toString()));
+                    setPoolPreparedStatements(Boolean.valueOf(
+                        ra.getContent().toString()).booleanValue());
                 }
                 ra = ref.get("maxActive");
                 if (ra != null && ra.getContent() != null) {
@@ -320,11 +360,49 @@ public class DriverAdapterCPDS
     // Properties
     
     /**
+     * Get the connection properties passed to the JDBC driver.
+     * 
+     * @return the JDBC connection properties used when creating connections.
+     * @since 1.3
+     */
+    public Properties getConnectionProperties() {
+        return connectionProperties;
+    }
+    
+    /**
+     * <p>Set the connection properties passed to the JDBC driver.</p>
+     * 
+     * <p>If <code>props</code> contains "user" and/or "password"
+     * properties, the corresponding instance properties are set. If these
+     * properties are not present, they are filled in using
+     * {@link #getUser()}, {@link #getPassword()} when {@link #getPooledConnection()}
+     * is called, or using the actual parameters to the method call when 
+     * {@link #getPooledConnection(String, String)} is called. Calls to
+     * {@link #setUser(String)} or {@link #setPassword(String)} overwrite the values
+     * of these properties if <code>connectionProperties</code> is not null.</p>
+     * 
+     * @param props Connection properties to use when creating new connections.
+     * @since 1.3
+     * @throws IllegalStateException if {@link #getPooledConnection()} has been called
+     */
+    public void setConnectionProperties(Properties props) {
+        assertInitializationAllowed();
+        connectionProperties = props;
+        if (connectionProperties.containsKey("user")) {
+            setUser(connectionProperties.getProperty("user"));
+        }
+        if (connectionProperties.containsKey("password")) {
+            setPassword(connectionProperties.getProperty("password"));
+        }
+    }
+    
+    /**
      * Get the value of description.  This property is here for use by
      * the code which will deploy this datasource.  It is not used
      * internally.
      *
-     * @return value of description.
+     * @return value of description, may be null.
+     * @see #setDescription(String)
      */
     public String getDescription() {
         return description;
@@ -352,10 +430,14 @@ public class DriverAdapterCPDS
     /**
      * Set the value of password for the default user.
      * @param v  Value to assign to password.
+     * @throws IllegalStateException if {@link #getPooledConnection()} has been called
      */
     public void setPassword(String v) {
         assertInitializationAllowed();
         this.password = v;
+        if (connectionProperties != null) {
+            connectionProperties.setProperty("password", v);
+        }
     }
 
     /**
@@ -369,7 +451,8 @@ public class DriverAdapterCPDS
     /**
      * Set the value of url used to locate the database for this datasource.
      * @param v  Value to assign to url.
-     */
+     * @throws IllegalStateException if {@link #getPooledConnection()} has been called
+    */
     public void setUrl(String v) {
         assertInitializationAllowed();
         this.url = v;
@@ -386,10 +469,14 @@ public class DriverAdapterCPDS
     /**
      * Set the value of default user (login or username).
      * @param v  Value to assign to user.
+     * @throws IllegalStateException if {@link #getPooledConnection()} has been called
      */
     public void setUser(String v) {
         assertInitializationAllowed();
         this.user = v;
+        if (connectionProperties != null) {
+            connectionProperties.setProperty("user", v);
+        }
     }
 
     /**
@@ -404,6 +491,7 @@ public class DriverAdapterCPDS
      * Set the driver classname.  Setting the driver classname cause the 
      * driver to be registered with the DriverManager.
      * @param v  Value to assign to driver.
+     * @throws IllegalStateException if {@link #getPooledConnection()} has been called
      */
     public void setDriver(String v) throws ClassNotFoundException {
         assertInitializationAllowed();
@@ -458,6 +546,7 @@ public class DriverAdapterCPDS
     /**
      * Flag to toggle the pooling of <code>PreparedStatement</code>s
      * @param v  true to pool statements.
+     * @throws IllegalStateException if {@link #getPooledConnection()} has been called
      */
     public void setPoolPreparedStatements(boolean v) {
         assertInitializationAllowed();
@@ -475,6 +564,8 @@ public class DriverAdapterCPDS
     /**
      * The maximum number of active statements that can be allocated from
      * this pool at the same time, or non-positive for no limit.
+     * @param maxActive the maximum number of concurrent active statements allowed
+     * @throws IllegalStateException if {@link #getPooledConnection()} has been called
      */
     public void setMaxActive(int maxActive) {
         assertInitializationAllowed();
@@ -484,6 +575,7 @@ public class DriverAdapterCPDS
     /**
      * The maximum number of statements that can remain idle in the
      * pool, without extra ones being released, or negative for no limit.
+     * @return the value of maxIdle
      */
     public int getMaxIdle() {
         return (this.maxIdle);
@@ -492,6 +584,9 @@ public class DriverAdapterCPDS
     /**
      * The maximum number of statements that can remain idle in the
      * pool, without extra ones being released, or negative for no limit.
+     * 
+     * @param maxIdle The maximum number of statements that can remain idle
+     * @throws IllegalStateException if {@link #getPooledConnection()} has been called
      */
     public void setMaxIdle(int maxIdle) {
         assertInitializationAllowed();
@@ -503,8 +598,8 @@ public class DriverAdapterCPDS
      * idle object evictor thread.
      * When non-positive, no idle object evictor thread will be
      * run.
-     *
-     * *see #setTimeBetweenEvictionRunsMillis
+     * @return the value of the evictor thread timer
+     * @see #setTimeBetweenEvictionRunsMillis(int)
      */
     public int getTimeBetweenEvictionRunsMillis() {
         return _timeBetweenEvictionRunsMillis;
@@ -515,8 +610,9 @@ public class DriverAdapterCPDS
      * idle object evictor thread.
      * When non-positive, no idle object evictor thread will be
      * run.
-     *
-     * *see #getTimeBetweenEvictionRunsMillis
+     * @param timeBetweenEvictionRunsMillis
+     * @see #getTimeBetweenEvictionRunsMillis()
+     * @throws IllegalStateException if {@link #getPooledConnection()} has been called
      */
     public void setTimeBetweenEvictionRunsMillis(
             int timeBetweenEvictionRunsMillis) {
@@ -542,9 +638,11 @@ public class DriverAdapterCPDS
      * When a negative value is supplied, <tt>ceil({*link #numIdle})/abs({*link #getNumTestsPerEvictionRun})</tt>
      * tests will be run.  I.e., when the value is <i>-n</i>, roughly one <i>n</i>th of the
      * idle objects will be tested per run.
-     *
-     * *see #getNumTestsPerEvictionRun
-     * *see #setTimeBetweenEvictionRunsMillis
+     * 
+     * @param numTestsPerEvictionRun number of statements to examine per run
+     * @see #getNumTestsPerEvictionRun()
+     * @see #setTimeBetweenEvictionRunsMillis(int)
+     * @throws IllegalStateException if {@link #getPooledConnection()} has been called
      */
     public void setNumTestsPerEvictionRun(int numTestsPerEvictionRun) {
         assertInitializationAllowed();
@@ -569,13 +667,34 @@ public class DriverAdapterCPDS
      * (if any).
      * When non-positive, no objects will be evicted from the pool
      * due to idle time alone.
-     *
-     * *see #getMinEvictableIdleTimeMillis
-     * *see #setTimeBetweenEvictionRunsMillis
+     * @param minEvictableIdleTimeMillis minimum time to set (in ms)
+     * @see #getMinEvictableIdleTimeMillis()
+     * @see #setTimeBetweenEvictionRunsMillis(int)
+     * @throws IllegalStateException if {@link #getPooledConnection()} has been called
      */
     public void setMinEvictableIdleTimeMillis(int minEvictableIdleTimeMillis) {
         assertInitializationAllowed();
         _minEvictableIdleTimeMillis = minEvictableIdleTimeMillis;
+    }
+    
+    /**
+     * Returns the value of the accessToUnderlyingConnectionAllowed property.
+     * 
+     * @return true if access to the underlying is allowed, false otherwise.
+     */
+    public synchronized boolean isAccessToUnderlyingConnectionAllowed() {
+        return this.accessToUnderlyingConnectionAllowed;
+    }
+
+    /**
+     * Sets the value of the accessToUnderlyingConnectionAllowed property.
+     * It controls if the PoolGuard allows access to the underlying connection.
+     * (Default: false)
+     * 
+     * @param allow Access to the underlying connection is granted when true.
+     */
+    public synchronized void setAccessToUnderlyingConnectionAllowed(boolean allow) {
+        this.accessToUnderlyingConnectionAllowed = allow;
     }
     
     /**

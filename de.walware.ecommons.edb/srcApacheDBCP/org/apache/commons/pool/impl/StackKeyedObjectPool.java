@@ -5,9 +5,9 @@
  * The ASF licenses this file to You under the Apache License, Version 2.0
  * (the "License"); you may not use this file except in compliance with
  * the License.  You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -20,9 +20,11 @@ package org.apache.commons.pool.impl;
 import org.apache.commons.pool.BaseKeyedObjectPool;
 import org.apache.commons.pool.KeyedObjectPool;
 import org.apache.commons.pool.KeyedPoolableObjectFactory;
+import org.apache.commons.pool.PoolUtils;
 
 import java.util.HashMap;
 import java.util.Iterator;
+import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Stack;
 
@@ -41,7 +43,7 @@ import java.util.Stack;
  *
  * @author Rodney Waldhoff
  * @author Sandy McArthur
- * @version $Revision: 607154 $ $Date: 2007-12-27 18:37:53 -0700 (Thu, 27 Dec 2007) $
+ * @version $Revision: 990437 $ $Date: 2010-08-28 13:17:57 -0700 (Sat, 28 Aug 2010) $
  * @see Stack
  * @since Pool 1.0
  */
@@ -131,6 +133,13 @@ public class StackKeyedObjectPool extends BaseKeyedObjectPool implements KeyedOb
         _activeCount = new HashMap();
     }
 
+    /**
+     * Borrows an object with the given key.  If there are no idle instances under the
+     * given key, a new one is created.
+     * 
+     * @param key the pool key
+     * @return keyed poolable object instance
+     */
     public synchronized Object borrowObject(Object key) throws Exception {
         assertOpen();
         Stack stack = (Stack)(_pools.get(key));
@@ -160,13 +169,15 @@ public class StackKeyedObjectPool extends BaseKeyedObjectPool implements KeyedOb
                         throw new Exception("ValidateObject failed");
                     }
                 } catch (Throwable t) {
+                    PoolUtils.checkRethrow(t);
                     try {
                         _factory.destroyObject(key,obj);
                     } catch (Throwable t2) {
+                        PoolUtils.checkRethrow(t2);
                         // swallowed
                     } finally {
                         obj = null;
-                    } 
+                    }
                     if (newlyMade) {
                         throw new NoSuchElementException(
                             "Could not create a validated object, cause: " +
@@ -179,6 +190,15 @@ public class StackKeyedObjectPool extends BaseKeyedObjectPool implements KeyedOb
         return obj;
     }
 
+    /**
+     * Returns <code>obj</code> to the pool under <code>key</code>.  If adding the
+     * returning instance to the pool results in {@link #_maxSleeping maxSleeping}
+     * exceeded for the given key, the oldest instance in the idle object pool
+     * is destroyed to make room for the returning instance.
+     * 
+     * @param key the pool key
+     * @param obj returning instance
+     */
     public synchronized void returnObject(Object key, Object obj) throws Exception {
         decrementActiveCount(key);
         if (null != _factory) {
@@ -232,6 +252,9 @@ public class StackKeyedObjectPool extends BaseKeyedObjectPool implements KeyedOb
         _totIdle++;
     }
 
+    /**
+     * {@inheritDoc}
+     */
     public synchronized void invalidateObject(Object key, Object obj) throws Exception {
         decrementActiveCount(key);
         if(null != _factory) {
@@ -313,7 +336,7 @@ public class StackKeyedObjectPool extends BaseKeyedObjectPool implements KeyedOb
      *
      * @return the total number of instances currently borrowed from this pool
      */
-    public int getNumActive() {
+    public synchronized int getNumActive() {
         return _totActive;
     }
 
@@ -367,6 +390,12 @@ public class StackKeyedObjectPool extends BaseKeyedObjectPool implements KeyedOb
         destroyStack(key,stack);
     }
 
+    /**
+     * Destroys all instances in the stack and clears the stack.
+     * 
+     * @param key key passed to factory when destroying instances
+     * @param stack stack to destroy
+     */
     private synchronized void destroyStack(Object key, Stack stack) {
         if(null == stack) {
             return;
@@ -387,6 +416,12 @@ public class StackKeyedObjectPool extends BaseKeyedObjectPool implements KeyedOb
         }
     }
 
+    /**
+     * Returns a string representation of this StackKeyedObjectPool, including
+     * the number of pools, the keys and the size of each keyed pool.
+     * 
+     * @return Keys and pool sizes
+     */
     public synchronized String toString() {
         StringBuffer buf = new StringBuffer();
         buf.append(getClass().getName());
@@ -421,8 +456,9 @@ public class StackKeyedObjectPool extends BaseKeyedObjectPool implements KeyedOb
      * Trying to change the <code>factory</code> after a pool has been used will frequently
      * throw an {@link UnsupportedOperationException}.
      *
-     * @param factory the {@link KeyedPoolableObjectFactory} used to create new instances.
+     * @param factory the {@link KeyedPoolableObjectFactory} used to manage object instances
      * @throws IllegalStateException when the factory cannot be set at this time
+     * @deprecated to be removed in pool 2.0
      */
     public synchronized void setFactory(KeyedPoolableObjectFactory factory) throws IllegalStateException {
         if(0 < getNumActive()) {
@@ -432,7 +468,21 @@ public class StackKeyedObjectPool extends BaseKeyedObjectPool implements KeyedOb
             _factory = factory;
         }
     }
+    
+    /**
+     * @return the {@link KeyedPoolableObjectFactory} used by this pool to manage object instances.
+     * @since 1.5.5
+     */
+    public synchronized KeyedPoolableObjectFactory getFactory() {
+        return _factory;
+    }
 
+    /**
+     * Returns the active instance count for the given key.
+     * 
+     * @param key pool key
+     * @return active count
+     */
     private int getActiveCount(Object key) {
         try {
             return ((Integer)_activeCount.get(key)).intValue();
@@ -443,16 +493,28 @@ public class StackKeyedObjectPool extends BaseKeyedObjectPool implements KeyedOb
         }
     }
 
+    /**
+     * Increment the active count for the given key. Also
+     * increments the total active count.
+     * 
+     * @param key pool key
+     */
     private void incrementActiveCount(Object key) {
         _totActive++;
         Integer old = (Integer)(_activeCount.get(key));
-        if(null == old) { 
+        if(null == old) {
             _activeCount.put(key,new Integer(1));
         } else {
             _activeCount.put(key,new Integer(old.intValue() + 1));
         }
     }
 
+    /**
+     * Decrements the active count for the given key.
+     * Also decrements the total active count.
+     * 
+     * @param key pool key
+     */
     private void decrementActiveCount(Object key) {
         _totActive--;
         Integer active = (Integer)(_activeCount.get(key));
@@ -465,6 +527,54 @@ public class StackKeyedObjectPool extends BaseKeyedObjectPool implements KeyedOb
         }
     }
 
+    
+    /**
+     * @return map of keyed pools
+     * @since 1.5.5
+     */
+    public Map getPools() {
+        return _pools;
+    }
+
+    /**
+     * @return the cap on the number of "sleeping" instances in <code>each</code> pool.
+     * @since 1.5.5
+     */
+    public int getMaxSleeping() {
+        return _maxSleeping;
+    }
+
+    /**
+     * @return the initial capacity of each pool.
+     * @since 1.5.5
+     */
+    public int getInitSleepingCapacity() {
+        return _initSleepingCapacity;
+    }
+
+    /**
+     * @return the _totActive
+     */
+    public int getTotActive() {
+        return _totActive;
+    }
+
+    /**
+     * @return the _totIdle
+     */
+    public int getTotIdle() {
+        return _totIdle;
+    }
+
+    /**
+     * @return the _activeCount
+     * @since 1.5.5
+     */
+    public Map getActiveCount() {
+        return _activeCount;
+    }
+
+
     /** The default cap on the number of "sleeping" instances in the pool. */
     protected static final int DEFAULT_MAX_SLEEPING  = 8;
 
@@ -475,25 +585,46 @@ public class StackKeyedObjectPool extends BaseKeyedObjectPool implements KeyedOb
      */
     protected static final int DEFAULT_INIT_SLEEPING_CAPACITY = 4;
 
-    /** My named-set of pools. */
+    /**
+     *  My named-set of pools.
+     *  @deprecated to be removed in pool 2.0.  Use {@link #getPools()}
+     */
     protected HashMap _pools = null;
 
-    /** My {@link KeyedPoolableObjectFactory}. */
+    /**
+     * My {@link KeyedPoolableObjectFactory}.
+     * @deprecated to be removed in pool 2.0.  Use {@link #getFactory()}
+     */
     protected KeyedPoolableObjectFactory _factory = null;
 
-    /** The cap on the number of "sleeping" instances in <code>each</code> pool. */
+    /**
+     *  The cap on the number of "sleeping" instances in <code>each</code> pool.
+     *  @deprecated to be removed in pool 2.0.  Use {@link #getMaxSleeping()}
+     */
     protected int _maxSleeping = DEFAULT_MAX_SLEEPING;
 
-    /** The initial capacity of each pool. */
+    /**
+     * The initial capacity of each pool.
+     * @deprecated to be removed in pool 2.0.  Use {@link #getInitSleepingCapacity()}.
+     */
     protected int _initSleepingCapacity = DEFAULT_INIT_SLEEPING_CAPACITY;
 
-    /** Total number of object borrowed and not yet retuened for all pools */
+    /**
+     * Total number of object borrowed and not yet returned for all pools.
+     * @deprecated to be removed in pool 2.0.  Use {@link #getTotActive()}.
+     */
     protected int _totActive = 0;
 
-    /** Total number of objects "sleeping" for all pools */
+    /**
+     * Total number of objects "sleeping" for all pools
+     * @deprecated to be removed in pool 2.0.  Use {@link #getTotIdle()}.
+     */
     protected int _totIdle = 0;
 
-    /** Number of active objects borrowed and not yet returned by pool */
+    /**
+     * Number of active objects borrowed and not yet returned by pool
+     * @deprecated to be removed in pool 2.0.  Use {@link #getActiveCount()}.
+     */
     protected HashMap _activeCount = null;
 
 }

@@ -5,9 +5,9 @@
  * The ASF licenses this file to You under the Apache License, Version 2.0
  * (the "License"); you may not use this file except in compliance with
  * the License.  You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -22,7 +22,7 @@ import java.util.NoSuchElementException;
 /**
  * A pooling interface.
  * <p>
- * <code>ObjectPool</code> defines a trivially simple pooling interface. The only 
+ * <code>ObjectPool</code> defines a trivially simple pooling interface. The only
  * required methods are {@link #borrowObject borrowObject}, {@link #returnObject returnObject}
  * and {@link #invalidateObject invalidateObject}.
  * </p>
@@ -33,17 +33,21 @@ import java.util.NoSuchElementException;
  *
  * <code style="color:#00C">try</code> {
  *     obj = pool.borrowObject();
- *     <code style="color:#0C0">//...use the object...</code>
+ *     <code style="color:#00C">try</code> {
+ *         <code style="color:#0C0">//...use the object...</code>
+ *     } <code style="color:#00C">catch</code>(Exception e) {
+ *         <code style="color:#0C0">// invalidate the object</code>
+ *         pool.invalidateObject(obj);
+ *         <code style="color:#0C0">// do not return the object to the pool twice</code>
+ *         obj = <code style="color:#00C">null</code>;
+ *     } <code style="color:#00C">finally</code> {
+ *         <code style="color:#0C0">// make sure the object is returned to the pool</code>
+ *         <code style="color:#00C">if</code>(<code style="color:#00C">null</code> != obj) {
+ *             pool.returnObject(obj);
+ *        }
+ *     }
  * } <code style="color:#00C">catch</code>(Exception e) {
- *     <code style="color:#0C0">// invalidate the object</code>
- *     pool.invalidateObject(obj);
- *     <code style="color:#0C0">// do not return the object to the pool twice</code>
- *     obj = <code style="color:#00C">null</code>;
- * } <code style="color:#00C">finally</code> {
- *     <code style="color:#0C0">// make sure the object is returned to the pool</code>
- *     <code style="color:#00C">if</code>(<code style="color:#00C">null</code> != obj) {
- *         pool.returnObject(obj);
- *    }
+ *       <code style="color:#0C0">// failed to borrow an object</code>
  * }</pre>
  * </p>
  *
@@ -51,7 +55,7 @@ import java.util.NoSuchElementException;
  *
  * @author Rodney Waldhoff
  * @author Sandy McArthur
- * @version $Revision: 480413 $ $Date: 2006-11-28 22:16:05 -0700 (Tue, 28 Nov 2006) $
+ * @version $Revision: 962893 $ $Date: 2010-07-10 10:37:27 -0700 (Sat, 10 Jul 2010) $
  * @see PoolableObjectFactory
  * @see ObjectPoolFactory
  * @see KeyedObjectPool
@@ -94,27 +98,22 @@ public interface ObjectPool {
      * or sub-interface.
      *
      * @param obj a {@link #borrowObject borrowed} instance to be returned.
-     * @throws Exception <b>deprecated</b>: as of Pool 2.0 pool implementations should swallow
-     * exceptions that occur when a poolable object is returned. For future source compatability
-     * implementations of this method should not even declare that they throw any exception.
+     * @throws Exception 
      */
     void returnObject(Object obj) throws Exception;
 
     /**
-     * Invalidates an object from the pool
-     * By contract, <code>obj</code> <strong>must</strong> have been obtained
-     * using {@link #borrowObject borrowObject}
-     * or a related method as defined in an implementation
-     * or sub-interface.
-     * <p>
-     * This method should be used when an object that has been borrowed
-     * is determined (due to an exception or other problem) to be invalid.
-     * </p>
+     * <p>Invalidates an object from the pool.</p>
+     * 
+     * <p>By contract, <code>obj</code> <strong>must</strong> have been obtained
+     * using {@link #borrowObject borrowObject} or a related method as defined in
+     * an implementation or sub-interface.</p>
+     *
+     * <p>This method should be used when an object that has been borrowed
+     * is determined (due to an exception or other problem) to be invalid.</p>
      *
      * @param obj a {@link #borrowObject borrowed} instance to be disposed.
-     * @throws Exception <b>deprecated</b>: as of Pool 2.0 pool implementations should swallow
-     * exceptions that occur when a poolable object is returned. For future source compatability
-     * implementations of this method should not even declare that they throw any exception.
+     * @throws Exception
      */
     void invalidateObject(Object obj) throws Exception;
 
@@ -185,6 +184,7 @@ public interface ObjectPool {
      * @param factory the {@link PoolableObjectFactory} used to create new instances.
      * @throws IllegalStateException when the factory cannot be set at this time
      * @throws UnsupportedOperationException if this implementation does not support the operation
+     * @deprecated to be removed in pool 2.0
      */
     void setFactory(PoolableObjectFactory factory) throws IllegalStateException, UnsupportedOperationException;
 }

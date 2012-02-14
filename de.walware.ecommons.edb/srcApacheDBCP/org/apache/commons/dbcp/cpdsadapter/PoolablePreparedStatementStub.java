@@ -29,7 +29,7 @@ import org.apache.commons.dbcp.PoolablePreparedStatement;
  * package.
  *
  * @author John D. McNally
- * @version $Revision: 479137 $ $Date: 2006-11-25 08:51:48 -0700 (Sat, 25 Nov 2006) $
+ * @version $Revision: 479137 $ $Date: 2006-11-25 10:51:48 -0500 (Sat, 25 Nov 2006) $
  */
 class PoolablePreparedStatementStub extends PoolablePreparedStatement {
 

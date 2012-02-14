@@ -21,7 +21,6 @@ import java.io.IOException;
 import java.io.ObjectInputStream;
 import java.sql.Connection;
 import java.sql.SQLException;
-import java.util.Map;
 
 import javax.naming.NamingException;
 import javax.naming.Reference;
@@ -34,24 +33,33 @@ import org.apache.commons.pool.impl.GenericObjectPool;
 import org.apache.commons.dbcp.SQLNestedException;
 
 /**
- * A pooling <code>DataSource</code> appropriate for deployment within
+ * <p>A pooling <code>DataSource</code> appropriate for deployment within
  * J2EE environment.  There are many configuration options, most of which are
  * defined in the parent class. All users (based on username) share a single 
- * maximum number of Connections in this datasource.
+ * maximum number of Connections in this datasource.</p>
+ * 
+ * <p>User passwords can be changed without re-initializing the datasource.
+ * When a <code>getConnection(username, password)</code> request is processed 
+ * with a password that is different from those used to create connections in the
+ * pool associated with <code>username</code>, an attempt is made to create a
+ * new connection using the supplied password and if this succeeds, idle connections
+ * created using the old password are destroyed and new connections are created
+ * using the new password.</p>
  *
  * @author John D. McNally
- * @version $Revision: 500687 $ $Date: 2007-01-27 16:33:47 -0700 (Sat, 27 Jan 2007) $
+ * @version $Revision: 907288 $ $Date: 2010-02-06 14:42:58 -0500 (Sat, 06 Feb 2010) $
  */
 public class SharedPoolDataSource
     extends InstanceKeyDataSource {
 
-    private final Map userKeys = new LRUMap(10);
+    private static final long serialVersionUID = -8132305535403690372L;
 
     private int maxActive = GenericObjectPool.DEFAULT_MAX_ACTIVE;
     private int maxIdle = GenericObjectPool.DEFAULT_MAX_IDLE;
-    private int maxWait = (int)Math.min((long)Integer.MAX_VALUE,
+    private int maxWait = (int)Math.min(Integer.MAX_VALUE,
         GenericObjectPool.DEFAULT_MAX_WAIT);
-    private KeyedObjectPool pool = null;
+    private transient KeyedObjectPool pool = null;
+    private transient KeyedCPDSConnectionFactory factory = null;
 
     /**
      * Default no-arg constructor for Serialization
@@ -151,27 +159,36 @@ public class SharedPoolDataSource
     // ----------------------------------------------------------------------
     // Inherited abstract methods
 
-    protected synchronized PooledConnectionAndInfo 
+    protected PooledConnectionAndInfo 
         getPooledConnectionAndInfo(String username, String password)
         throws SQLException {
-        if (pool == null) {
-            try {
-                registerPool(username, password);
-            } catch (NamingException e) {
-                throw new SQLNestedException("RegisterPool failed", e);
+        
+        synchronized(this) {
+            if (pool == null) {
+                try {
+                    registerPool(username, password);
+                } catch (NamingException e) {
+                    throw new SQLNestedException("RegisterPool failed", e);
+                }
             }
         }
 
         PooledConnectionAndInfo info = null;
+        
+        UserPassKey key = new UserPassKey(username, password);
+        
         try {
-            info = (PooledConnectionAndInfo) pool
-                .borrowObject(getUserPassKey(username, password));
+            info = (PooledConnectionAndInfo) pool.borrowObject(key);
         }
         catch (Exception e) {
             throw new SQLNestedException(
-                "Could not retrieve connection info from pool", e);
+                    "Could not retrieve connection info from pool", e);
         }
         return info;
+    }
+    
+    protected PooledConnectionManager getConnectionManager(UserPassKey upkey)  {
+        return factory;
     }
 
     /**
@@ -186,15 +203,6 @@ public class SharedPoolDataSource
         return ref;
     }
     
-    private UserPassKey getUserPassKey(String username, String password) {
-        UserPassKey key = (UserPassKey) userKeys.get(username);
-        if (key == null) {
-            key = new UserPassKey(username, password);
-            userKeys.put(username, key);
-        }
-        return key;
-    }
-
     private void registerPool(
         String username, String password) 
         throws javax.naming.NamingException, SQLException {
@@ -218,18 +226,25 @@ public class SharedPoolDataSource
         // Set up the factory we will use (passing the pool associates
         // the factory with the pool, so we do not have to do so
         // explicitly)
-        new KeyedCPDSConnectionFactory(cpds, pool, getValidationQuery(),
+        factory = new KeyedCPDSConnectionFactory(cpds, pool, getValidationQuery(),
                                        isRollbackAfterValidation());
     }
 
-    protected void setupDefaults(Connection con, String username)
-        throws SQLException {
-        con.setAutoCommit(isDefaultAutoCommit());
+    protected void setupDefaults(Connection con, String username) throws SQLException {
+        boolean defaultAutoCommit = isDefaultAutoCommit();
+        if (con.getAutoCommit() != defaultAutoCommit) {
+            con.setAutoCommit(defaultAutoCommit);
+        }
+
         int defaultTransactionIsolation = getDefaultTransactionIsolation();
         if (defaultTransactionIsolation != UNKNOWN_TRANSACTIONISOLATION) {
             con.setTransactionIsolation(defaultTransactionIsolation);
         }
-        con.setReadOnly(isDefaultReadOnly());
+
+        boolean defaultReadOnly = isDefaultReadOnly();
+        if (con.isReadOnly() != defaultReadOnly) {
+            con.setReadOnly(defaultReadOnly);
+        }
     }
 
     /**

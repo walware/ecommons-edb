@@ -47,10 +47,10 @@ import org.xml.sax.SAXException;
  *
  * @author Rodney Waldhoff
  * @author Dirk Verbeeck
- * @version $Revision: 500687 $ $Date: 2007-01-27 16:33:47 -0700 (Sat, 27 Jan 2007) $
+ * @version $Revision: 902692 $ $Date: 2010-01-24 22:28:54 -0500 (Sun, 24 Jan 2010) $
  */
 public class PoolingDriver implements Driver {
-    /** Register an myself with the {@link DriverManager}. */
+    /** Register myself with the {@link DriverManager}. */
     static {
         try {
             DriverManager.registerDriver(new PoolingDriver());
@@ -59,7 +59,7 @@ public class PoolingDriver implements Driver {
     }
 
     /** The map of registered pools. */
-    protected static HashMap _pools = new HashMap();
+    protected static final HashMap _pools = new HashMap();
 
     /** Controls access to the underlying connection */
     private static boolean accessToUnderlyingConnectionAllowed = false; 
@@ -106,16 +106,20 @@ public class PoolingDriver implements Driver {
         ObjectPool pool = (ObjectPool)(_pools.get(name));
         if(null == pool) {
             InputStream in = this.getClass().getResourceAsStream(String.valueOf(name) + ".jocl");
+            if (in == null) {
+                in = Thread.currentThread().getContextClassLoader(
+                        ).getResourceAsStream(String.valueOf(name) + ".jocl");
+            }
             if(null != in) {
                 JOCLContentHandler jocl = null;
                 try {
                     jocl = JOCLContentHandler.parse(in);
                 }
                 catch (SAXException e) {
-                    throw new SQLNestedException("Could not parse configuration file", e);
+                    throw (SQLException) new SQLException("Could not parse configuration file").initCause(e);
                 }
                 catch (IOException e) {
-                    throw new SQLNestedException("Could not load configuration file", e);
+                    throw (SQLException) new SQLException("Could not load configuration file").initCause(e);
                 }
                 if(jocl.getType(0).equals(String.class)) {
                     pool = getPool((String)(jocl.getValue(0)));
@@ -148,12 +152,12 @@ public class PoolingDriver implements Driver {
                 pool.close();
             }
             catch (Exception e) {
-                throw new SQLNestedException("Error closing pool " + name, e);
+                throw (SQLException) new SQLException("Error closing pool " + name).initCause(e);
             }
         }
     }
     
-    public synchronized String[] getPoolNames() throws SQLException{
+    public synchronized String[] getPoolNames(){
         Set names = _pools.keySet();
         return (String[]) names.toArray(new String[names.size()]);
     }
@@ -181,11 +185,11 @@ public class PoolingDriver implements Driver {
                 } catch(SQLException e) {
                     throw e;
                 } catch(NoSuchElementException e) {
-                    throw new SQLNestedException("Cannot get a connection, pool error: " + e.getMessage(), e);
+                    throw (SQLException) new SQLException("Cannot get a connection, pool error: " + e.getMessage()).initCause(e);
                 } catch(RuntimeException e) {
                     throw e;
                 } catch(Exception e) {
-                    throw new SQLNestedException("Cannot get a connection, general error: " + e.getMessage(), e);
+                    throw (SQLException) new SQLException("Cannot get a connection, general error: " + e.getMessage()).initCause(e);
                 }
             }
         } else {
@@ -236,20 +240,20 @@ public class PoolingDriver implements Driver {
     }
 
     /** My URL prefix */
-    protected static String URL_PREFIX = "jdbc:apache:commons:dbcp:";
-    protected static int URL_PREFIX_LEN = URL_PREFIX.length();
+    protected static final String URL_PREFIX = "jdbc:apache:commons:dbcp:";
+    protected static final int URL_PREFIX_LEN = URL_PREFIX.length();
 
     // version numbers
-    protected static int MAJOR_VERSION = 1;
-    protected static int MINOR_VERSION = 0;
+    protected static final int MAJOR_VERSION = 1;
+    protected static final int MINOR_VERSION = 0;
 
     /**
      * PoolGuardConnectionWrapper is a Connection wrapper that makes sure a 
      * closed connection cannot be used anymore.
      */
-    private class PoolGuardConnectionWrapper extends DelegatingConnection {
+    static private class PoolGuardConnectionWrapper extends DelegatingConnection {
 
-        private ObjectPool pool;
+        private final ObjectPool pool;
         private Connection delegate;
     
         PoolGuardConnectionWrapper(ObjectPool pool, Connection delegate) {
@@ -263,12 +267,13 @@ public class PoolingDriver implements Driver {
                 throw new SQLException("Connection is closed.");
             }
         }
-    
+
         public void close() throws SQLException {
-            checkOpen();
-            this.delegate.close();
-            this.delegate = null;
-            super.setDelegate(null);
+            if (delegate != null) {
+                this.delegate.close();
+                this.delegate = null;
+                super.setDelegate(null);
+            }
         }
 
         public boolean isClosed() throws SQLException {
@@ -290,12 +295,12 @@ public class PoolingDriver implements Driver {
 
         public Statement createStatement() throws SQLException {
             checkOpen();
-            return delegate.createStatement();
+            return new DelegatingStatement(this, delegate.createStatement());
         }
 
         public Statement createStatement(int resultSetType, int resultSetConcurrency) throws SQLException {
             checkOpen();
-            return delegate.createStatement(resultSetType, resultSetConcurrency);
+            return new DelegatingStatement(this, delegate.createStatement(resultSetType, resultSetConcurrency));
         }
 
         public boolean equals(Object obj) {
@@ -354,22 +359,22 @@ public class PoolingDriver implements Driver {
 
         public CallableStatement prepareCall(String sql) throws SQLException {
             checkOpen();
-            return delegate.prepareCall(sql);
+            return new DelegatingCallableStatement(this, delegate.prepareCall(sql));
         }
 
         public CallableStatement prepareCall(String sql, int resultSetType, int resultSetConcurrency) throws SQLException {
             checkOpen();
-            return delegate.prepareCall(sql, resultSetType, resultSetConcurrency);
+            return new DelegatingCallableStatement(this, delegate.prepareCall(sql, resultSetType, resultSetConcurrency));
         }
 
         public PreparedStatement prepareStatement(String sql) throws SQLException {
             checkOpen();
-            return delegate.prepareStatement(sql);
+            return new DelegatingPreparedStatement(this, delegate.prepareStatement(sql));
         }
 
         public PreparedStatement prepareStatement(String sql, int resultSetType, int resultSetConcurrency) throws SQLException {
             checkOpen();
-            return delegate.prepareStatement(sql, resultSetType, resultSetConcurrency);
+            return new DelegatingPreparedStatement(this, delegate.prepareStatement(sql, resultSetType, resultSetConcurrency));
         }
 
         public void rollback() throws SQLException {
@@ -404,15 +409,10 @@ public class PoolingDriver implements Driver {
 
         public String toString() {
             if (delegate == null){
-                return null;
+                return "NULL";
             }
             return delegate.toString();
         }
-
-        // ------------------- JDBC 3.0 -----------------------------------------
-        // Will be commented by the build process on a JDBC 2.0 system
-
-/* JDBC_3_ANT_KEY_BEGIN */
 
         public int getHoldability() throws SQLException {
             checkOpen();
@@ -446,35 +446,33 @@ public class PoolingDriver implements Driver {
 
         public Statement createStatement(int resultSetType, int resultSetConcurrency, int resultSetHoldability) throws SQLException {
             checkOpen();
-            return delegate.createStatement(resultSetType, resultSetConcurrency, resultSetHoldability);
+            return new DelegatingStatement(this, delegate.createStatement(resultSetType, resultSetConcurrency, resultSetHoldability));
         }
 
         public CallableStatement prepareCall(String sql, int resultSetType, int resultSetConcurrency, int resultSetHoldability) throws SQLException {
             checkOpen();
-            return delegate.prepareCall(sql, resultSetType, resultSetConcurrency, resultSetHoldability);
+            return new DelegatingCallableStatement(this, delegate.prepareCall(sql, resultSetType, resultSetConcurrency, resultSetHoldability));
         }
 
         public PreparedStatement prepareStatement(String sql, int autoGeneratedKeys) throws SQLException {
             checkOpen();
-            return delegate.prepareStatement(sql, autoGeneratedKeys);
+            return new DelegatingPreparedStatement(this, delegate.prepareStatement(sql, autoGeneratedKeys));
         }
 
         public PreparedStatement prepareStatement(String sql, int resultSetType, int resultSetConcurrency, int resultSetHoldability) throws SQLException {
             checkOpen();
-            return delegate.prepareStatement(sql, resultSetType, resultSetConcurrency, resultSetHoldability);
+            return new DelegatingPreparedStatement(this, delegate.prepareStatement(sql, resultSetType, resultSetConcurrency, resultSetHoldability));
         }
 
         public PreparedStatement prepareStatement(String sql, int[] columnIndexes) throws SQLException {
             checkOpen();
-            return delegate.prepareStatement(sql, columnIndexes);
+            return new DelegatingPreparedStatement(this, delegate.prepareStatement(sql, columnIndexes));
         }
 
         public PreparedStatement prepareStatement(String sql, String[] columnNames) throws SQLException {
             checkOpen();
-            return delegate.prepareStatement(sql, columnNames);
+            return new DelegatingPreparedStatement(this, delegate.prepareStatement(sql, columnNames));
         }
-
-/* JDBC_3_ANT_KEY_END */
 
         /**
          * @see org.apache.commons.dbcp.DelegatingConnection#getDelegate()

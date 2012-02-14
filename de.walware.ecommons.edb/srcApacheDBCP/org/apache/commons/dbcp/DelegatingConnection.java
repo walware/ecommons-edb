@@ -24,8 +24,22 @@ import java.sql.PreparedStatement;
 import java.sql.SQLException;
 import java.sql.SQLWarning;
 import java.sql.Statement;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.sql.ResultSet;
+/* JDBC_4_ANT_KEY_BEGIN */
+import java.sql.Array;
+import java.sql.Blob;
+import java.sql.ClientInfoStatus;
+import java.sql.Clob;
+import java.sql.NClob;
+import java.sql.SQLClientInfoException;
+import java.sql.SQLXML;
+import java.sql.Struct;
+import java.util.Collections;
+import java.util.Properties;
+/* JDBC_4_ANT_KEY_END */
 
 /**
  * A base delegating implementation of {@link Connection}.
@@ -46,17 +60,23 @@ import java.util.Map;
  * @author Glenn L. Nielsen
  * @author James House
  * @author Dirk Verbeeck
- * @version $Revision: 500687 $ $Date: 2007-01-27 16:33:47 -0700 (Sat, 27 Jan 2007) $
+ * @version $Revision: 896719 $ $Date: 2010-01-06 18:42:22 -0500 (Wed, 06 Jan 2010) $
  */
 public class DelegatingConnection extends AbandonedTrace
         implements Connection {
+
+/* JDBC_4_ANT_KEY_BEGIN */
+    private static final Map<String, ClientInfoStatus> EMPTY_FAILED_PROPERTIES =
+        Collections.<String, ClientInfoStatus>emptyMap();
+/* JDBC_4_ANT_KEY_END */
+
     /** My delegate {@link Connection}. */
     protected Connection _conn = null;
 
     protected boolean _closed = false;
     
     /**
-     * Create a wrapper for the Connectin which traces this
+     * Create a wrapper for the Connection which traces this
      * Connection in the AbandonedObjectPool.
      *
      * @param c the {@link Connection} to delegate all calls to.
@@ -73,7 +93,6 @@ public class DelegatingConnection extends AbandonedTrace
      *
      * @param c the {@link Connection} to delegate all calls to.
      * @param config the configuration for tracing abandoned objects
-     * @deprecated AbandonedConfig is now deprecated.
      */
     public DelegatingConnection(Connection c, AbandonedConfig config) {
         super(config);
@@ -89,7 +108,7 @@ public class DelegatingConnection extends AbandonedTrace
     public String toString() {
         String s = null;
         
-        Connection c = this.getInnermostDelegate();
+        Connection c = this.getInnermostDelegateInternal();
         if (c != null) {
             try {
                 if (c.isClosed()) {
@@ -109,7 +128,7 @@ public class DelegatingConnection extends AbandonedTrace
                 }
             }
             catch (SQLException ex) {
-                s = null;
+                // Ignore
             }
         }
         
@@ -125,6 +144,13 @@ public class DelegatingConnection extends AbandonedTrace
      * @return my underlying {@link Connection}.
      */
     public Connection getDelegate() {
+        return getDelegateInternal();
+    }
+    
+    /**
+     * Should be final but can't be for compatibility with previous releases.
+     */
+    protected Connection getDelegateInternal() {
         return _conn;
     }
     
@@ -136,7 +162,7 @@ public class DelegatingConnection extends AbandonedTrace
      * @since 1.2.2
      */
     public boolean innermostDelegateEquals(Connection c) {
-        Connection innerCon = getInnermostDelegate();
+        Connection innerCon = getInnermostDelegateInternal();
         if (innerCon == null) {
             return c == null;
         } else {
@@ -144,6 +170,10 @@ public class DelegatingConnection extends AbandonedTrace
         }
     }
 
+    /**
+     * This method considers two objects to be equal 
+     * if the underlying jdbc objects are equal.
+     */
     public boolean equals(Object obj) {
         if (obj == null) {
             return false;
@@ -151,7 +181,7 @@ public class DelegatingConnection extends AbandonedTrace
         if (obj == this) {
             return true;
         }
-        Connection delegate = getInnermostDelegate();
+        Connection delegate = getInnermostDelegateInternal();
         if (delegate == null) {
             return false;
         }
@@ -165,7 +195,7 @@ public class DelegatingConnection extends AbandonedTrace
     }
 
     public int hashCode() {
-        Object obj = getInnermostDelegate();
+        Object obj = getInnermostDelegateInternal();
         if (obj == null) {
             return 0;
         }
@@ -182,23 +212,27 @@ public class DelegatingConnection extends AbandonedTrace
      * Hence this method will return the first
      * delegate that is not a <tt>DelegatingConnection</tt>,
      * or <tt>null</tt> when no non-<tt>DelegatingConnection</tt>
-     * delegate can be found by transversing this chain.
+     * delegate can be found by traversing this chain.
      * <p>
      * This method is useful when you may have nested
      * <tt>DelegatingConnection</tt>s, and you want to make
      * sure to obtain a "genuine" {@link Connection}.
      */
     public Connection getInnermostDelegate() {
+        return getInnermostDelegateInternal();
+    }
+
+    protected final Connection getInnermostDelegateInternal() {
         Connection c = _conn;
         while(c != null && c instanceof DelegatingConnection) {
-            c = ((DelegatingConnection)c).getDelegate();
+            c = ((DelegatingConnection)c).getDelegateInternal();
             if(this == c) {
                 return null;
             }
         }
         return c;
     }
-
+    
     /** Sets my delegate. */
     public void setDelegate(Connection c) {
         _conn = c;
@@ -208,8 +242,7 @@ public class DelegatingConnection extends AbandonedTrace
      * Closes the underlying connection, and close
      * any Statements that were not explicitly closed.
      */
-    public void close() throws SQLException
-    {
+    public void close() throws SQLException {
         passivate();
         _conn.close();
     }
@@ -306,8 +339,15 @@ public class DelegatingConnection extends AbandonedTrace
     public String getCatalog() throws SQLException
     { checkOpen(); try { return _conn.getCatalog(); } catch (SQLException e) { handleException(e); return null; } }
     
-    public DatabaseMetaData getMetaData() throws SQLException
-    { checkOpen(); try { return _conn.getMetaData(); } catch (SQLException e) { handleException(e); return null; } }
+    public DatabaseMetaData getMetaData() throws SQLException {
+        checkOpen();
+        try {
+            return new DelegatingDatabaseMetaData(this, _conn.getMetaData());
+        } catch (SQLException e) {
+            handleException(e);
+            return null;
+        }
+    }
     
     public int getTransactionIsolation() throws SQLException
     { checkOpen(); try { return _conn.getTransactionIsolation(); } catch (SQLException e) { handleException(e); return -1; } }
@@ -343,16 +383,24 @@ public class DelegatingConnection extends AbandonedTrace
     { checkOpen(); try { _conn.setTypeMap(map); } catch (SQLException e) { handleException(e); } }
 
     public boolean isClosed() throws SQLException {
-         if(_closed || _conn.isClosed()) {
-             return true;
-         }
-         return false;
+        return _closed || _conn.isClosed();
     }
 
     protected void checkOpen() throws SQLException {
         if(_closed) {
-            throw new SQLException
-                ("Connection " + _conn + " is closed.");
+            if (null != _conn) {
+                String label = "";
+                try {
+                    label = _conn.toString();
+                } catch (Exception ex) {
+                    // ignore, leave label empty
+                }
+                throw new SQLException
+                    ("Connection " + label + " is closed.");
+            } else {
+                throw new SQLException
+                    ("Connection is null.");
+            }      
         }
     }
 
@@ -368,12 +416,19 @@ public class DelegatingConnection extends AbandonedTrace
         try {
             // The JDBC spec requires that a Connection close any open
             // Statement's when it is closed.
-            List statements = getTrace();
-            if( statements != null) {
-                Statement[] set = new Statement[statements.size()];
-                statements.toArray(set);
-                for (int i = 0; i < set.length; i++) {
-                    set[i].close();
+            // DBCP-288. Not all the traced objects will be statements
+            List traces = getTrace();
+            if(traces != null) {
+                Iterator traceIter = traces.iterator();
+                while (traceIter.hasNext()) {
+                    Object trace = traceIter.next();
+                    if (trace instanceof Statement) {
+                        ((Statement) trace).close();
+                    } else if (trace instanceof ResultSet) {
+                        // DBCP-265: Need to close the result sets that are
+                        // generated via DatabaseMetaData
+                        ((ResultSet) trace).close();
+                    }
                 }
                 clearTrace();
             }
@@ -386,11 +441,6 @@ public class DelegatingConnection extends AbandonedTrace
             _closed = true;
         }
     }
-
-    // ------------------- JDBC 3.0 -----------------------------------------
-    // Will be commented by the build process on a JDBC 2.0 system
-
-/* JDBC_3_ANT_KEY_BEGIN */
 
     public int getHoldability() throws SQLException
     { checkOpen(); try { return _conn.getHoldability(); } catch (SQLException e) { handleException(e); return 0; } }
@@ -487,5 +537,146 @@ public class DelegatingConnection extends AbandonedTrace
             return null;
         }
     }
-/* JDBC_3_ANT_KEY_END */
+
+/* JDBC_4_ANT_KEY_BEGIN */
+
+    public boolean isWrapperFor(Class<?> iface) throws SQLException {
+        return iface.isAssignableFrom(getClass()) || _conn.isWrapperFor(iface);
+    }
+
+    public <T> T unwrap(Class<T> iface) throws SQLException {
+        if (iface.isAssignableFrom(getClass())) {
+            return iface.cast(this);
+        } else if (iface.isAssignableFrom(_conn.getClass())) {
+            return iface.cast(_conn);
+        } else {
+            return _conn.unwrap(iface);
+        }
+    }
+
+    public Array createArrayOf(String typeName, Object[] elements) throws SQLException {
+        checkOpen();
+        try {
+            return _conn.createArrayOf(typeName, elements);
+        }
+        catch (SQLException e) {
+            handleException(e);
+            return null;
+        }
+    }
+
+    public Blob createBlob() throws SQLException {
+        checkOpen();
+        try {
+            return _conn.createBlob();
+        }
+        catch (SQLException e) {
+            handleException(e);
+            return null;
+        }
+    }
+
+    public Clob createClob() throws SQLException {
+        checkOpen();
+        try {
+            return _conn.createClob();
+        }
+        catch (SQLException e) {
+            handleException(e);
+            return null;
+        }
+    }
+
+    public NClob createNClob() throws SQLException {
+        checkOpen();
+        try {
+            return _conn.createNClob();
+        }
+        catch (SQLException e) {
+            handleException(e);
+            return null;
+        }
+    }
+
+    public SQLXML createSQLXML() throws SQLException {
+        checkOpen();
+        try {
+            return _conn.createSQLXML();
+        }
+        catch (SQLException e) {
+            handleException(e);
+            return null;
+        }
+    }
+
+    public Struct createStruct(String typeName, Object[] attributes) throws SQLException {
+        checkOpen();
+        try {
+            return _conn.createStruct(typeName, attributes);
+        }
+        catch (SQLException e) {
+            handleException(e);
+            return null;
+        }
+    }
+
+    public boolean isValid(int timeout) throws SQLException {
+        checkOpen();
+        try {
+            return _conn.isValid(timeout);
+        }
+        catch (SQLException e) {
+            handleException(e);
+            return false;
+        }
+    }
+
+    public void setClientInfo(String name, String value) throws SQLClientInfoException {
+        try {
+            checkOpen();
+            _conn.setClientInfo(name, value);
+        }
+        catch (SQLClientInfoException e) {
+            throw e;
+        }
+        catch (SQLException e) {
+            throw new SQLClientInfoException("Connection is closed.", EMPTY_FAILED_PROPERTIES, e);
+        }
+    }
+
+    public void setClientInfo(Properties properties) throws SQLClientInfoException {
+        try {
+            checkOpen();
+            _conn.setClientInfo(properties);
+        }
+        catch (SQLClientInfoException e) {
+            throw e;
+        }
+        catch (SQLException e) {
+            throw new SQLClientInfoException("Connection is closed.", EMPTY_FAILED_PROPERTIES, e);
+        }
+    }
+
+    public Properties getClientInfo() throws SQLException {
+        checkOpen();
+        try {
+            return _conn.getClientInfo();
+        }
+        catch (SQLException e) {
+            handleException(e);
+            return null;
+        }
+    }
+
+    public String getClientInfo(String name) throws SQLException {
+        checkOpen();
+        try {
+            return _conn.getClientInfo(name);
+        }
+        catch (SQLException e) {
+            handleException(e);
+            return null;
+        }
+    }
+/* JDBC_4_ANT_KEY_END */
 }

@@ -5,9 +5,9 @@
  * The ASF licenses this file to You under the Apache License, Version 2.0
  * (the "License"); you may not use this file except in compliance with
  * the License.  You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -17,12 +17,17 @@
 
 package org.apache.commons.pool.impl;
 
+import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Iterator;
+import java.util.LinkedList;
+import java.util.List;
 import java.util.NoSuchElementException;
 import java.util.TimerTask;
 
 import org.apache.commons.pool.BaseObjectPool;
 import org.apache.commons.pool.ObjectPool;
+import org.apache.commons.pool.PoolUtils;
 import org.apache.commons.pool.PoolableObjectFactory;
 import org.apache.commons.pool.impl.GenericKeyedObjectPool.ObjectTimestampPair;
 
@@ -37,11 +42,11 @@ import org.apache.commons.pool.impl.GenericKeyedObjectPool.ObjectTimestampPair;
  * <ul>
  *  <li>
  *    {@link #setMaxActive <i>maxActive</i>} controls the maximum number of
- *    objects that can be borrowed from the pool at one time.  When
- *    non-positive, there is no limit to the number of objects that may be
- *    active at one time. When {@link #setMaxActive <i>maxActive</i>} is
- *    exceeded, the pool is said to be exhausted. The default setting for this
- *    parameter is 8.
+ *    objects that can be allocated by the pool (checked out to clients, or
+ *    idle awaiting checkout) at a given time.  When non-positive, there is no
+ *    limit to the number of objects that can be managed by the pool at one time.
+ *    When {@link #setMaxActive <i>maxActive</i>} is reached, the pool is said
+ *    to be exhausted. The default setting for this parameter is 8.
  *  </li>
  *  <li>
  *    {@link #setMaxIdle <i>maxIdle</i>} controls the maximum number of objects
@@ -61,15 +66,15 @@ import org.apache.commons.pool.impl.GenericKeyedObjectPool.ObjectTimestampPair;
  *    <li>
  *      When {@link #setWhenExhaustedAction <i>whenExhaustedAction</i>} is
  *      {@link #WHEN_EXHAUSTED_GROW}, {@link #borrowObject} will create a new
- *      object and return it(essentially making {@link #setMaxActive <i>maxActive</i>}
+ *      object and return it (essentially making {@link #setMaxActive <i>maxActive</i>}
  *      meaningless.)
  *    </li>
  *    <li>
  *      When {@link #setWhenExhaustedAction <i>whenExhaustedAction</i>}
  *      is {@link #WHEN_EXHAUSTED_BLOCK}, {@link #borrowObject} will block
- *      (invoke {@link Object#wait()} until a new or idle object is available.
+ *      (invoke {@link Object#wait()}) until a new or idle object is available.
  *      If a positive {@link #setMaxWait <i>maxWait</i>}
- *      value is supplied, the {@link #borrowObject} will block for at
+ *      value is supplied, then {@link #borrowObject} will block for at
  *      most that many milliseconds, after which a {@link NoSuchElementException}
  *      will be thrown.  If {@link #setMaxWait <i>maxWait</i>} is non-positive,
  *      the {@link #borrowObject} method will block indefinitely.
@@ -103,11 +108,10 @@ import org.apache.commons.pool.impl.GenericKeyedObjectPool.ObjectTimestampPair;
  * as they sit idle in the pool and to ensure that a minimum number of idle
  * objects are available. This is performed by an "idle object eviction"
  * thread, which runs asynchronously. Caution should be used when configuring
- * this optional feature. Eviction runs require an exclusive synchronization
- * lock on the pool, so if they run too frequently and / or incur excessive
- * latency when creating, destroying or validating object instances,
- * performance issues may result.  The idle object eviction thread may be
- * configured using the following attributes:
+ * this optional feature. Eviction runs contend with client threads for access
+ * to objects in the pool, so if they run too frequently performance issues may
+ * result. The idle object eviction thread may be configured using the following
+ * attributes:
  * <ul>
  *  <li>
  *   {@link #setTimeBetweenEvictionRunsMillis <i>timeBetweenEvictionRunsMillis</i>}
@@ -128,26 +132,29 @@ import org.apache.commons.pool.impl.GenericKeyedObjectPool.ObjectTimestampPair;
  *   {@link #setTestWhileIdle <i>testWhileIdle</i>} indicates whether or not idle
  *   objects should be validated using the factory's
  *   {@link PoolableObjectFactory#validateObject} method. Objects that fail to
- *   validate will be dropped from the pool. This setting has no effect unless 
+ *   validate will be dropped from the pool. This setting has no effect unless
  *   <code>timeBetweenEvictionRunsMillis > 0.</code>  The default setting for
  *   this parameter is <code>false.</code>
  *  </li>
  *  <li>
- *   {@link #setSoftMinEvictableIdleTimeMillis <i>softMinEvictableIdleTimeMillis</i>} 
+ *   {@link #setSoftMinEvictableIdleTimeMillis <i>softMinEvictableIdleTimeMillis</i>}
  *   specifies the minimum amount of time an object may sit idle in the pool
  *   before it is eligible for eviction by the idle object evictor
- *   (if any), with the extra condition that at least "minIdle" amount of object 
+ *   (if any), with the extra condition that at least "minIdle" object instances
  *   remain in the pool.  When non-positive, no objects will be evicted from the pool
  *   due to idle time alone. This setting has no effect unless
- *   <code>timeBetweenEvictionRunsMillis > 0.</code>  The default setting for
+ *   <code>timeBetweenEvictionRunsMillis > 0.</code> and it is superceded by
+ *   {@link #setMinEvictableIdleTimeMillis <i>minEvictableIdleTimeMillis</i>}
+ *   (that is, if <code>minEvictableIdleTimeMillis</code> is positive, then
+ *   <code>softMinEvictableIdleTimeMillis</code> is ignored). The default setting for
  *   this parameter is -1 (disabled).
  *  </li>
  *  <li>
  *   {@link #setNumTestsPerEvictionRun <i>numTestsPerEvictionRun</i>}
  *   determines the number of objects examined in each run of the idle object
- *   evictor. This setting has no effect unless 
+ *   evictor. This setting has no effect unless
  *   <code>timeBetweenEvictionRunsMillis > 0.</code>  The default setting for
- *   this parameter is 3.  
+ *   this parameter is 3.
  *  </li>
  * </ul>
  * <p>
@@ -159,7 +166,7 @@ import org.apache.commons.pool.impl.GenericKeyedObjectPool.ObjectTimestampPair;
  * <ul>
  *  <li>
  *   {@link #setLifo <i>lifo</i>}
- *   determines whether or not the pool returns idle objects in 
+ *   determines whether or not the pool returns idle objects in
  *   last-in-first-out order. The default setting for this parameter is
  *   <code>true.</code>
  *  </li>
@@ -168,12 +175,16 @@ import org.apache.commons.pool.impl.GenericKeyedObjectPool.ObjectTimestampPair;
  * GenericObjectPool is not usable without a {@link PoolableObjectFactory}.  A
  * non-<code>null</code> factory must be provided either as a constructor argument
  * or via a call to {@link #setFactory} before the pool is used.
+ * <p>
+ * Implementation note: To prevent possible deadlocks, care has been taken to
+ * ensure that no call to a factory method will occur within a synchronization
+ * block. See POOL-125 and DBCP-44 for more information.
  *
  * @see GenericKeyedObjectPool
  * @author Rodney Waldhoff
  * @author Dirk Verbeeck
  * @author Sandy McArthur
- * @version $Revision: 609487 $ $Date: 2008-01-06 19:36:42 -0700 (Sun, 06 Jan 2008) $
+ * @version $Revision: 1206500 $ $Date: 2011-11-26 10:09:06 -0700 (Sat, 26 Nov 2011) $
  * @since Pool 1.0
  */
 public class GenericObjectPool extends BaseObjectPool implements ObjectPool {
@@ -245,7 +256,7 @@ public class GenericObjectPool extends BaseObjectPool implements ObjectPool {
      * @see #setWhenExhaustedAction
      */
     public static final byte DEFAULT_WHEN_EXHAUSTED_ACTION = WHEN_EXHAUSTED_BLOCK;
-    
+
     /**
      * The default LIFO status. True means that borrowObject returns the
      * most recently used ("last in") idle object in the pool (if there are
@@ -325,18 +336,22 @@ public class GenericObjectPool extends BaseObjectPool implements ObjectPool {
     //--- constructors -----------------------------------------------
 
     /**
-     * Create a new <tt>GenericObjectPool</tt>.
+     * Create a new <tt>GenericObjectPool</tt> with default properties.
      */
     public GenericObjectPool() {
-        this(null,DEFAULT_MAX_ACTIVE,DEFAULT_WHEN_EXHAUSTED_ACTION,DEFAULT_MAX_WAIT,DEFAULT_MAX_IDLE,DEFAULT_MIN_IDLE,DEFAULT_TEST_ON_BORROW,DEFAULT_TEST_ON_RETURN,DEFAULT_TIME_BETWEEN_EVICTION_RUNS_MILLIS,DEFAULT_NUM_TESTS_PER_EVICTION_RUN,DEFAULT_MIN_EVICTABLE_IDLE_TIME_MILLIS,DEFAULT_TEST_WHILE_IDLE);
+        this(null, DEFAULT_MAX_ACTIVE, DEFAULT_WHEN_EXHAUSTED_ACTION, DEFAULT_MAX_WAIT, DEFAULT_MAX_IDLE,
+                DEFAULT_MIN_IDLE, DEFAULT_TEST_ON_BORROW, DEFAULT_TEST_ON_RETURN, DEFAULT_TIME_BETWEEN_EVICTION_RUNS_MILLIS,
+                DEFAULT_NUM_TESTS_PER_EVICTION_RUN, DEFAULT_MIN_EVICTABLE_IDLE_TIME_MILLIS, DEFAULT_TEST_WHILE_IDLE);
     }
 
     /**
-     * Create a new <tt>GenericObjectPool</tt> using the specified values.
+     * Create a new <tt>GenericObjectPool</tt> using the specified factory.
      * @param factory the (possibly <tt>null</tt>)PoolableObjectFactory to use to create, validate and destroy objects
      */
     public GenericObjectPool(PoolableObjectFactory factory) {
-        this(factory,DEFAULT_MAX_ACTIVE,DEFAULT_WHEN_EXHAUSTED_ACTION,DEFAULT_MAX_WAIT,DEFAULT_MAX_IDLE,DEFAULT_MIN_IDLE,DEFAULT_TEST_ON_BORROW,DEFAULT_TEST_ON_RETURN,DEFAULT_TIME_BETWEEN_EVICTION_RUNS_MILLIS,DEFAULT_NUM_TESTS_PER_EVICTION_RUN,DEFAULT_MIN_EVICTABLE_IDLE_TIME_MILLIS,DEFAULT_TEST_WHILE_IDLE);
+        this(factory, DEFAULT_MAX_ACTIVE, DEFAULT_WHEN_EXHAUSTED_ACTION, DEFAULT_MAX_WAIT, DEFAULT_MAX_IDLE,
+                DEFAULT_MIN_IDLE, DEFAULT_TEST_ON_BORROW, DEFAULT_TEST_ON_RETURN, DEFAULT_TIME_BETWEEN_EVICTION_RUNS_MILLIS,
+                DEFAULT_NUM_TESTS_PER_EVICTION_RUN, DEFAULT_MIN_EVICTABLE_IDLE_TIME_MILLIS, DEFAULT_TEST_WHILE_IDLE);
     }
 
     /**
@@ -345,7 +360,10 @@ public class GenericObjectPool extends BaseObjectPool implements ObjectPool {
      * @param config a non-<tt>null</tt> {@link GenericObjectPool.Config} describing my configuration
      */
     public GenericObjectPool(PoolableObjectFactory factory, GenericObjectPool.Config config) {
-        this(factory,config.maxActive,config.whenExhaustedAction,config.maxWait,config.maxIdle,config.minIdle,config.testOnBorrow,config.testOnReturn,config.timeBetweenEvictionRunsMillis,config.numTestsPerEvictionRun,config.minEvictableIdleTimeMillis,config.testWhileIdle,config.softMinEvictableIdleTimeMillis, config.lifo);
+        this(factory, config.maxActive, config.whenExhaustedAction, config.maxWait, config.maxIdle, config.minIdle,
+                config.testOnBorrow, config.testOnReturn, config.timeBetweenEvictionRunsMillis, 
+                config.numTestsPerEvictionRun, config.minEvictableIdleTimeMillis, config.testWhileIdle, 
+                config.softMinEvictableIdleTimeMillis, config.lifo);
     }
 
     /**
@@ -354,7 +372,9 @@ public class GenericObjectPool extends BaseObjectPool implements ObjectPool {
      * @param maxActive the maximum number of objects that can be borrowed from me at one time (see {@link #setMaxActive})
      */
     public GenericObjectPool(PoolableObjectFactory factory, int maxActive) {
-        this(factory,maxActive,DEFAULT_WHEN_EXHAUSTED_ACTION,DEFAULT_MAX_WAIT,DEFAULT_MAX_IDLE,DEFAULT_MIN_IDLE,DEFAULT_TEST_ON_BORROW,DEFAULT_TEST_ON_RETURN,DEFAULT_TIME_BETWEEN_EVICTION_RUNS_MILLIS,DEFAULT_NUM_TESTS_PER_EVICTION_RUN,DEFAULT_MIN_EVICTABLE_IDLE_TIME_MILLIS,DEFAULT_TEST_WHILE_IDLE);
+        this(factory, maxActive, DEFAULT_WHEN_EXHAUSTED_ACTION, DEFAULT_MAX_WAIT, DEFAULT_MAX_IDLE, DEFAULT_MIN_IDLE,
+                DEFAULT_TEST_ON_BORROW, DEFAULT_TEST_ON_RETURN, DEFAULT_TIME_BETWEEN_EVICTION_RUNS_MILLIS,
+                DEFAULT_NUM_TESTS_PER_EVICTION_RUN, DEFAULT_MIN_EVICTABLE_IDLE_TIME_MILLIS, DEFAULT_TEST_WHILE_IDLE);
     }
 
     /**
@@ -362,128 +382,194 @@ public class GenericObjectPool extends BaseObjectPool implements ObjectPool {
      * @param factory the (possibly <tt>null</tt>)PoolableObjectFactory to use to create, validate and destroy objects
      * @param maxActive the maximum number of objects that can be borrowed from me at one time (see {@link #setMaxActive})
      * @param whenExhaustedAction the action to take when the pool is exhausted (see {@link #getWhenExhaustedAction})
-     * @param maxWait the maximum amount of time to wait for an idle object when the pool is exhausted an and <i>whenExhaustedAction</i> is {@link #WHEN_EXHAUSTED_BLOCK} (otherwise ignored) (see {@link #getMaxWait})
+     * @param maxWait the maximum amount of time to wait for an idle object when the pool is exhausted an and
+     * <i>whenExhaustedAction</i> is {@link #WHEN_EXHAUSTED_BLOCK} (otherwise ignored) (see {@link #getMaxWait})
      */
     public GenericObjectPool(PoolableObjectFactory factory, int maxActive, byte whenExhaustedAction, long maxWait) {
-        this(factory,maxActive,whenExhaustedAction,maxWait,DEFAULT_MAX_IDLE,DEFAULT_MIN_IDLE,DEFAULT_TEST_ON_BORROW,DEFAULT_TEST_ON_RETURN,DEFAULT_TIME_BETWEEN_EVICTION_RUNS_MILLIS,DEFAULT_NUM_TESTS_PER_EVICTION_RUN,DEFAULT_MIN_EVICTABLE_IDLE_TIME_MILLIS,DEFAULT_TEST_WHILE_IDLE);
+        this(factory, maxActive, whenExhaustedAction, maxWait, DEFAULT_MAX_IDLE, DEFAULT_MIN_IDLE, DEFAULT_TEST_ON_BORROW,
+                DEFAULT_TEST_ON_RETURN, DEFAULT_TIME_BETWEEN_EVICTION_RUNS_MILLIS, DEFAULT_NUM_TESTS_PER_EVICTION_RUN,
+                DEFAULT_MIN_EVICTABLE_IDLE_TIME_MILLIS, DEFAULT_TEST_WHILE_IDLE);
     }
 
     /**
      * Create a new <tt>GenericObjectPool</tt> using the specified values.
      * @param factory the (possibly <tt>null</tt>)PoolableObjectFactory to use to create, validate and destroy objects
-     * @param maxActive the maximum number of objects that can be borrowed from me at one time (see {@link #setMaxActive})
+     * @param maxActive the maximum number of objects that can be borrowed at one time (see {@link #setMaxActive})
      * @param whenExhaustedAction the action to take when the pool is exhausted (see {@link #getWhenExhaustedAction})
-     * @param maxWait the maximum amount of time to wait for an idle object when the pool is exhausted an and <i>whenExhaustedAction</i> is {@link #WHEN_EXHAUSTED_BLOCK} (otherwise ignored) (see {@link #getMaxWait})
-     * @param testOnBorrow whether or not to validate objects before they are returned by the {@link #borrowObject} method (see {@link #getTestOnBorrow})
-     * @param testOnReturn whether or not to validate objects after they are returned to the {@link #returnObject} method (see {@link #getTestOnReturn})
+     * @param maxWait the maximum amount of time to wait for an idle object when the pool is exhausted an and
+     * <i>whenExhaustedAction</i> is {@link #WHEN_EXHAUSTED_BLOCK} (otherwise ignored) (see {@link #getMaxWait})
+     * @param testOnBorrow whether or not to validate objects before they are returned by the {@link #borrowObject} method
+     * (see {@link #getTestOnBorrow})
+     * @param testOnReturn whether or not to validate objects after they are returned to the {@link #returnObject} method
+     * (see {@link #getTestOnReturn})
      */
-    public GenericObjectPool(PoolableObjectFactory factory, int maxActive, byte whenExhaustedAction, long maxWait, boolean testOnBorrow, boolean testOnReturn) {
-        this(factory,maxActive,whenExhaustedAction,maxWait,DEFAULT_MAX_IDLE,DEFAULT_MIN_IDLE,testOnBorrow,testOnReturn,DEFAULT_TIME_BETWEEN_EVICTION_RUNS_MILLIS,DEFAULT_NUM_TESTS_PER_EVICTION_RUN,DEFAULT_MIN_EVICTABLE_IDLE_TIME_MILLIS,DEFAULT_TEST_WHILE_IDLE);
+    public GenericObjectPool(PoolableObjectFactory factory, int maxActive, byte whenExhaustedAction, long maxWait,
+            boolean testOnBorrow, boolean testOnReturn) {
+        this(factory, maxActive, whenExhaustedAction, maxWait, DEFAULT_MAX_IDLE, DEFAULT_MIN_IDLE, testOnBorrow,
+                testOnReturn, DEFAULT_TIME_BETWEEN_EVICTION_RUNS_MILLIS, DEFAULT_NUM_TESTS_PER_EVICTION_RUN,
+                DEFAULT_MIN_EVICTABLE_IDLE_TIME_MILLIS, DEFAULT_TEST_WHILE_IDLE);
     }
 
     /**
      * Create a new <tt>GenericObjectPool</tt> using the specified values.
      * @param factory the (possibly <tt>null</tt>)PoolableObjectFactory to use to create, validate and destroy objects
-     * @param maxActive the maximum number of objects that can be borrowed from me at one time (see {@link #setMaxActive})
+     * @param maxActive the maximum number of objects that can be borrowed at one time (see {@link #setMaxActive})
      * @param whenExhaustedAction the action to take when the pool is exhausted (see {@link #getWhenExhaustedAction})
-     * @param maxWait the maximum amount of time to wait for an idle object when the pool is exhausted an and <i>whenExhaustedAction</i> is {@link #WHEN_EXHAUSTED_BLOCK} (otherwise ignored) (see {@link #getMaxWait})
+     * @param maxWait the maximum amount of time to wait for an idle object when the pool is exhausted and 
+     * <i>whenExhaustedAction</i> is {@link #WHEN_EXHAUSTED_BLOCK} (otherwise ignored) (see {@link #getMaxWait})
      * @param maxIdle the maximum number of idle objects in my pool (see {@link #getMaxIdle})
      */
     public GenericObjectPool(PoolableObjectFactory factory, int maxActive, byte whenExhaustedAction, long maxWait, int maxIdle) {
-        this(factory,maxActive,whenExhaustedAction,maxWait,maxIdle,DEFAULT_MIN_IDLE,DEFAULT_TEST_ON_BORROW,DEFAULT_TEST_ON_RETURN,DEFAULT_TIME_BETWEEN_EVICTION_RUNS_MILLIS,DEFAULT_NUM_TESTS_PER_EVICTION_RUN,DEFAULT_MIN_EVICTABLE_IDLE_TIME_MILLIS,DEFAULT_TEST_WHILE_IDLE);
+        this(factory, maxActive, whenExhaustedAction, maxWait, maxIdle, DEFAULT_MIN_IDLE, DEFAULT_TEST_ON_BORROW,
+                DEFAULT_TEST_ON_RETURN, DEFAULT_TIME_BETWEEN_EVICTION_RUNS_MILLIS, DEFAULT_NUM_TESTS_PER_EVICTION_RUN,
+                DEFAULT_MIN_EVICTABLE_IDLE_TIME_MILLIS, DEFAULT_TEST_WHILE_IDLE);
     }
 
     /**
      * Create a new <tt>GenericObjectPool</tt> using the specified values.
      * @param factory the (possibly <tt>null</tt>)PoolableObjectFactory to use to create, validate and destroy objects
-     * @param maxActive the maximum number of objects that can be borrowed from me at one time (see {@link #setMaxActive})
+     * @param maxActive the maximum number of objects that can be borrowed at one time (see {@link #setMaxActive})
      * @param whenExhaustedAction the action to take when the pool is exhausted (see {@link #getWhenExhaustedAction})
-     * @param maxWait the maximum amount of time to wait for an idle object when the pool is exhausted an and <i>whenExhaustedAction</i> is {@link #WHEN_EXHAUSTED_BLOCK} (otherwise ignored) (see {@link #getMaxWait})
+     * @param maxWait the maximum amount of time to wait for an idle object when the pool is exhausted and
+     * <i>whenExhaustedAction</i> is {@link #WHEN_EXHAUSTED_BLOCK} (otherwise ignored) (see {@link #getMaxWait})
      * @param maxIdle the maximum number of idle objects in my pool (see {@link #getMaxIdle})
-     * @param testOnBorrow whether or not to validate objects before they are returned by the {@link #borrowObject} method (see {@link #getTestOnBorrow})
-     * @param testOnReturn whether or not to validate objects after they are returned to the {@link #returnObject} method (see {@link #getTestOnReturn})
+     * @param testOnBorrow whether or not to validate objects before they are returned by the {@link #borrowObject} method
+     * (see {@link #getTestOnBorrow})
+     * @param testOnReturn whether or not to validate objects after they are returned to the {@link #returnObject} method
+     * (see {@link #getTestOnReturn})
      */
-    public GenericObjectPool(PoolableObjectFactory factory, int maxActive, byte whenExhaustedAction, long maxWait, int maxIdle, boolean testOnBorrow, boolean testOnReturn) {
-        this(factory,maxActive,whenExhaustedAction,maxWait,maxIdle,DEFAULT_MIN_IDLE,testOnBorrow,testOnReturn,DEFAULT_TIME_BETWEEN_EVICTION_RUNS_MILLIS,DEFAULT_NUM_TESTS_PER_EVICTION_RUN,DEFAULT_MIN_EVICTABLE_IDLE_TIME_MILLIS,DEFAULT_TEST_WHILE_IDLE);
+    public GenericObjectPool(PoolableObjectFactory factory, int maxActive, byte whenExhaustedAction, long maxWait,
+            int maxIdle, boolean testOnBorrow, boolean testOnReturn) {
+        this(factory, maxActive, whenExhaustedAction, maxWait, maxIdle, DEFAULT_MIN_IDLE, testOnBorrow, testOnReturn,
+                DEFAULT_TIME_BETWEEN_EVICTION_RUNS_MILLIS, DEFAULT_NUM_TESTS_PER_EVICTION_RUN,
+                DEFAULT_MIN_EVICTABLE_IDLE_TIME_MILLIS, DEFAULT_TEST_WHILE_IDLE);
     }
 
     /**
      * Create a new <tt>GenericObjectPool</tt> using the specified values.
      * @param factory the (possibly <tt>null</tt>)PoolableObjectFactory to use to create, validate and destroy objects
-     * @param maxActive the maximum number of objects that can be borrowed from me at one time (see {@link #setMaxActive})
+     * @param maxActive the maximum number of objects that can be borrowed at one time (see {@link #setMaxActive})
      * @param whenExhaustedAction the action to take when the pool is exhausted (see {@link #setWhenExhaustedAction})
-     * @param maxWait the maximum amount of time to wait for an idle object when the pool is exhausted an and <i>whenExhaustedAction</i> is {@link #WHEN_EXHAUSTED_BLOCK} (otherwise ignored) (see {@link #setMaxWait})
+     * @param maxWait the maximum amount of time to wait for an idle object when the pool is exhausted and 
+     * <i>whenExhaustedAction</i> is {@link #WHEN_EXHAUSTED_BLOCK} (otherwise ignored) (see {@link #setMaxWait})
      * @param maxIdle the maximum number of idle objects in my pool (see {@link #setMaxIdle})
-     * @param testOnBorrow whether or not to validate objects before they are returned by the {@link #borrowObject} method (see {@link #setTestOnBorrow})
-     * @param testOnReturn whether or not to validate objects after they are returned to the {@link #returnObject} method (see {@link #setTestOnReturn})
-     * @param timeBetweenEvictionRunsMillis the amount of time (in milliseconds) to sleep between examining idle objects for eviction (see {@link #setTimeBetweenEvictionRunsMillis})
-     * @param numTestsPerEvictionRun the number of idle objects to examine per run within the idle object eviction thread (if any) (see {@link #setNumTestsPerEvictionRun})
-     * @param minEvictableIdleTimeMillis the minimum number of milliseconds an object can sit idle in the pool before it is eligible for eviction (see {@link #setMinEvictableIdleTimeMillis})
-     * @param testWhileIdle whether or not to validate objects in the idle object eviction thread, if any (see {@link #setTestWhileIdle})
+     * @param testOnBorrow whether or not to validate objects before they are returned by the {@link #borrowObject}
+     * method (see {@link #setTestOnBorrow})
+     * @param testOnReturn whether or not to validate objects after they are returned to the {@link #returnObject} method
+     * (see {@link #setTestOnReturn})
+     * @param timeBetweenEvictionRunsMillis the amount of time (in milliseconds) to sleep between examining idle objects
+     * for eviction (see {@link #setTimeBetweenEvictionRunsMillis})
+     * @param numTestsPerEvictionRun the number of idle objects to examine per run within the idle object eviction thread
+     * (if any) (see {@link #setNumTestsPerEvictionRun})
+     * @param minEvictableIdleTimeMillis the minimum number of milliseconds an object can sit idle in the pool before it
+     * is eligible for eviction (see {@link #setMinEvictableIdleTimeMillis})
+     * @param testWhileIdle whether or not to validate objects in the idle object eviction thread, if any
+     * (see {@link #setTestWhileIdle})
      */
-    public GenericObjectPool(PoolableObjectFactory factory, int maxActive, byte whenExhaustedAction, long maxWait, int maxIdle, boolean testOnBorrow, boolean testOnReturn, long timeBetweenEvictionRunsMillis, int numTestsPerEvictionRun, long minEvictableIdleTimeMillis, boolean testWhileIdle) {
-        this(factory, maxActive, whenExhaustedAction, maxWait, maxIdle, DEFAULT_MIN_IDLE, testOnBorrow, testOnReturn, timeBetweenEvictionRunsMillis, numTestsPerEvictionRun, minEvictableIdleTimeMillis, testWhileIdle);
+    public GenericObjectPool(PoolableObjectFactory factory, int maxActive, byte whenExhaustedAction, long maxWait,
+            int maxIdle, boolean testOnBorrow, boolean testOnReturn, long timeBetweenEvictionRunsMillis,
+            int numTestsPerEvictionRun, long minEvictableIdleTimeMillis, boolean testWhileIdle) {
+        this(factory, maxActive, whenExhaustedAction, maxWait, maxIdle, DEFAULT_MIN_IDLE, testOnBorrow, testOnReturn,
+                timeBetweenEvictionRunsMillis, numTestsPerEvictionRun, minEvictableIdleTimeMillis, testWhileIdle);
     }
 
     /**
      * Create a new <tt>GenericObjectPool</tt> using the specified values.
      * @param factory the (possibly <tt>null</tt>)PoolableObjectFactory to use to create, validate and destroy objects
-     * @param maxActive the maximum number of objects that can be borrowed from me at one time (see {@link #setMaxActive})
+     * @param maxActive the maximum number of objects that can be borrowed at one time (see {@link #setMaxActive})
      * @param whenExhaustedAction the action to take when the pool is exhausted (see {@link #setWhenExhaustedAction})
-     * @param maxWait the maximum amount of time to wait for an idle object when the pool is exhausted an and <i>whenExhaustedAction</i> is {@link #WHEN_EXHAUSTED_BLOCK} (otherwise ignored) (see {@link #setMaxWait})
-     * @param maxIdle the maximum number of idle objects in my pool (see {@link #setMaxIdle})
-     * @param minIdle the minimum number of idle objects in my pool (see {@link #setMinIdle})
-     * @param testOnBorrow whether or not to validate objects before they are returned by the {@link #borrowObject} method (see {@link #setTestOnBorrow})
-     * @param testOnReturn whether or not to validate objects after they are returned to the {@link #returnObject} method (see {@link #setTestOnReturn})
-     * @param timeBetweenEvictionRunsMillis the amount of time (in milliseconds) to sleep between examining idle objects for eviction (see {@link #setTimeBetweenEvictionRunsMillis})
-     * @param numTestsPerEvictionRun the number of idle objects to examine per run within the idle object eviction thread (if any) (see {@link #setNumTestsPerEvictionRun})
-     * @param minEvictableIdleTimeMillis the minimum number of milliseconds an object can sit idle in the pool before it is eligible for eviction (see {@link #setMinEvictableIdleTimeMillis})
-     * @param testWhileIdle whether or not to validate objects in the idle object eviction thread, if any (see {@link #setTestWhileIdle})
-     */
-    public GenericObjectPool(PoolableObjectFactory factory, int maxActive, byte whenExhaustedAction, long maxWait, int maxIdle, int minIdle, boolean testOnBorrow, boolean testOnReturn, long timeBetweenEvictionRunsMillis, int numTestsPerEvictionRun, long minEvictableIdleTimeMillis, boolean testWhileIdle) {
-        this(factory, maxActive, whenExhaustedAction, maxWait, maxIdle, minIdle, testOnBorrow, testOnReturn, timeBetweenEvictionRunsMillis, numTestsPerEvictionRun, minEvictableIdleTimeMillis, testWhileIdle, DEFAULT_SOFT_MIN_EVICTABLE_IDLE_TIME_MILLIS);
-    }
-
-    /**
-     * Create a new <tt>GenericObjectPool</tt> using the specified values.
-     * @param factory the (possibly <tt>null</tt>)PoolableObjectFactory to use to create, validate and destroy objects
-     * @param maxActive the maximum number of objects that can be borrowed from me at one time (see {@link #setMaxActive})
-     * @param whenExhaustedAction the action to take when the pool is exhausted (see {@link #setWhenExhaustedAction})
-     * @param maxWait the maximum amount of time to wait for an idle object when the pool is exhausted an and <i>whenExhaustedAction</i> is {@link #WHEN_EXHAUSTED_BLOCK} (otherwise ignored) (see {@link #setMaxWait})
+     * @param maxWait the maximum amount of time to wait for an idle object when the pool is exhausted and
+     *  <i>whenExhaustedAction</i> is {@link #WHEN_EXHAUSTED_BLOCK} (otherwise ignored) (see {@link #setMaxWait})
      * @param maxIdle the maximum number of idle objects in my pool (see {@link #setMaxIdle})
      * @param minIdle the minimum number of idle objects in my pool (see {@link #setMinIdle})
-     * @param testOnBorrow whether or not to validate objects before they are returned by the {@link #borrowObject} method (see {@link #setTestOnBorrow})
-     * @param testOnReturn whether or not to validate objects after they are returned to the {@link #returnObject} method (see {@link #setTestOnReturn})
-     * @param timeBetweenEvictionRunsMillis the amount of time (in milliseconds) to sleep between examining idle objects for eviction (see {@link #setTimeBetweenEvictionRunsMillis})
-     * @param numTestsPerEvictionRun the number of idle objects to examine per run within the idle object eviction thread (if any) (see {@link #setNumTestsPerEvictionRun})
-     * @param minEvictableIdleTimeMillis the minimum number of milliseconds an object can sit idle in the pool before it is eligible for eviction (see {@link #setMinEvictableIdleTimeMillis})
-     * @param testWhileIdle whether or not to validate objects in the idle object eviction thread, if any (see {@link #setTestWhileIdle})
-     * @param softMinEvictableIdleTimeMillis the minimum number of milliseconds an object can sit idle in the pool before it is eligible for eviction with the extra condition that at least "minIdle" amount of object remain in the pool. (see {@link #setSoftMinEvictableIdleTimeMillis})
+     * @param testOnBorrow whether or not to validate objects before they are returned by the {@link #borrowObject} method
+     * (see {@link #setTestOnBorrow})
+     * @param testOnReturn whether or not to validate objects after they are returned to the {@link #returnObject} method
+     * (see {@link #setTestOnReturn})
+     * @param timeBetweenEvictionRunsMillis the amount of time (in milliseconds) to sleep between examining idle objects
+     * for eviction (see {@link #setTimeBetweenEvictionRunsMillis})
+     * @param numTestsPerEvictionRun the number of idle objects to examine per run within the idle object eviction thread
+     * (if any) (see {@link #setNumTestsPerEvictionRun})
+     * @param minEvictableIdleTimeMillis the minimum number of milliseconds an object can sit idle in the pool before
+     * it is eligible for eviction (see {@link #setMinEvictableIdleTimeMillis})
+     * @param testWhileIdle whether or not to validate objects in the idle object eviction thread, if any
+     *  (see {@link #setTestWhileIdle})
+     */
+    public GenericObjectPool(PoolableObjectFactory factory, int maxActive, byte whenExhaustedAction, long maxWait,
+            int maxIdle, int minIdle, boolean testOnBorrow, boolean testOnReturn, long timeBetweenEvictionRunsMillis,
+            int numTestsPerEvictionRun, long minEvictableIdleTimeMillis, boolean testWhileIdle) {
+        this(factory, maxActive, whenExhaustedAction, maxWait, maxIdle, minIdle, testOnBorrow, testOnReturn,
+                timeBetweenEvictionRunsMillis, numTestsPerEvictionRun, minEvictableIdleTimeMillis, testWhileIdle,
+                DEFAULT_SOFT_MIN_EVICTABLE_IDLE_TIME_MILLIS);
+    }
+
+    /**
+     * Create a new <tt>GenericObjectPool</tt> using the specified values.
+     * @param factory the (possibly <tt>null</tt>)PoolableObjectFactory to use to create, validate and destroy objects
+     * @param maxActive the maximum number of objects that can be borrowed at one time (see {@link #setMaxActive})
+     * @param whenExhaustedAction the action to take when the pool is exhausted (see {@link #setWhenExhaustedAction})
+     * @param maxWait the maximum amount of time to wait for an idle object when the pool is exhausted and
+     * <i>whenExhaustedAction</i> is {@link #WHEN_EXHAUSTED_BLOCK} (otherwise ignored) (see {@link #setMaxWait})
+     * @param maxIdle the maximum number of idle objects in my pool (see {@link #setMaxIdle})
+     * @param minIdle the minimum number of idle objects in my pool (see {@link #setMinIdle})
+     * @param testOnBorrow whether or not to validate objects before they are returned by the {@link #borrowObject}
+     * method (see {@link #setTestOnBorrow})
+     * @param testOnReturn whether or not to validate objects after they are returned to the {@link #returnObject}
+     * method (see {@link #setTestOnReturn})
+     * @param timeBetweenEvictionRunsMillis the amount of time (in milliseconds) to sleep between examining idle objects
+     * for eviction (see {@link #setTimeBetweenEvictionRunsMillis})
+     * @param numTestsPerEvictionRun the number of idle objects to examine per run within the idle object eviction thread
+     * (if any) (see {@link #setNumTestsPerEvictionRun})
+     * @param minEvictableIdleTimeMillis the minimum number of milliseconds an object can sit idle in the pool before
+     * it is eligible for eviction (see {@link #setMinEvictableIdleTimeMillis})
+     * @param testWhileIdle whether or not to validate objects in the idle object eviction thread, if any
+     * (see {@link #setTestWhileIdle})
+     * @param softMinEvictableIdleTimeMillis the minimum number of milliseconds an object can sit idle in the pool before it is
+     * eligible for eviction with the extra condition that at least "minIdle" amount of object remain in the pool.
+     * (see {@link #setSoftMinEvictableIdleTimeMillis})
      * @since Pool 1.3
      */
-    public GenericObjectPool(PoolableObjectFactory factory, int maxActive, byte whenExhaustedAction, long maxWait, int maxIdle, int minIdle, boolean testOnBorrow, boolean testOnReturn, long timeBetweenEvictionRunsMillis, int numTestsPerEvictionRun, long minEvictableIdleTimeMillis, boolean testWhileIdle, long softMinEvictableIdleTimeMillis) {
-        this(factory, maxActive, whenExhaustedAction, maxWait, maxIdle, minIdle, testOnBorrow, testOnReturn, timeBetweenEvictionRunsMillis, numTestsPerEvictionRun, minEvictableIdleTimeMillis, testWhileIdle, softMinEvictableIdleTimeMillis, DEFAULT_LIFO);
+    public GenericObjectPool(PoolableObjectFactory factory, int maxActive, byte whenExhaustedAction, long maxWait,
+            int maxIdle, int minIdle, boolean testOnBorrow, boolean testOnReturn, long timeBetweenEvictionRunsMillis,
+            int numTestsPerEvictionRun, long minEvictableIdleTimeMillis, boolean testWhileIdle,
+            long softMinEvictableIdleTimeMillis) {
+        this(factory, maxActive, whenExhaustedAction, maxWait, maxIdle, minIdle, testOnBorrow, testOnReturn,
+                timeBetweenEvictionRunsMillis, numTestsPerEvictionRun, minEvictableIdleTimeMillis, testWhileIdle,
+                softMinEvictableIdleTimeMillis, DEFAULT_LIFO);
     }
-    
+
     /**
      * Create a new <tt>GenericObjectPool</tt> using the specified values.
      * @param factory the (possibly <tt>null</tt>)PoolableObjectFactory to use to create, validate and destroy objects
-     * @param maxActive the maximum number of objects that can be borrowed from me at one time (see {@link #setMaxActive})
+     * @param maxActive the maximum number of objects that can be borrowed at one time (see {@link #setMaxActive})
      * @param whenExhaustedAction the action to take when the pool is exhausted (see {@link #setWhenExhaustedAction})
-     * @param maxWait the maximum amount of time to wait for an idle object when the pool is exhausted an and <i>whenExhaustedAction</i> is {@link #WHEN_EXHAUSTED_BLOCK} (otherwise ignored) (see {@link #setMaxWait})
+     * @param maxWait the maximum amount of time to wait for an idle object when the pool is exhausted and
+     * <i>whenExhaustedAction</i> is {@link #WHEN_EXHAUSTED_BLOCK} (otherwise ignored) (see {@link #setMaxWait})
      * @param maxIdle the maximum number of idle objects in my pool (see {@link #setMaxIdle})
      * @param minIdle the minimum number of idle objects in my pool (see {@link #setMinIdle})
-     * @param testOnBorrow whether or not to validate objects before they are returned by the {@link #borrowObject} method (see {@link #setTestOnBorrow})
-     * @param testOnReturn whether or not to validate objects after they are returned to the {@link #returnObject} method (see {@link #setTestOnReturn})
-     * @param timeBetweenEvictionRunsMillis the amount of time (in milliseconds) to sleep between examining idle objects for eviction (see {@link #setTimeBetweenEvictionRunsMillis})
-     * @param numTestsPerEvictionRun the number of idle objects to examine per run within the idle object eviction thread (if any) (see {@link #setNumTestsPerEvictionRun})
-     * @param minEvictableIdleTimeMillis the minimum number of milliseconds an object can sit idle in the pool before it is eligible for eviction (see {@link #setMinEvictableIdleTimeMillis})
-     * @param testWhileIdle whether or not to validate objects in the idle object eviction thread, if any (see {@link #setTestWhileIdle})
-     * @param softMinEvictableIdleTimeMillis the minimum number of milliseconds an object can sit idle in the pool before it is eligible for eviction with the extra condition that at least "minIdle" amount of object remain in the pool. (see {@link #setSoftMinEvictableIdleTimeMillis})
-     * @param lifo whether or not objects are returned in last-in-first-out order from the idle object pool (see {@link #setLifo})
+     * @param testOnBorrow whether or not to validate objects before they are returned by the {@link #borrowObject}
+     * method (see {@link #setTestOnBorrow})
+     * @param testOnReturn whether or not to validate objects after they are returned to the {@link #returnObject}
+     * method (see {@link #setTestOnReturn})
+     * @param timeBetweenEvictionRunsMillis the amount of time (in milliseconds) to sleep between examining idle
+     * objects for eviction (see {@link #setTimeBetweenEvictionRunsMillis})
+     * @param numTestsPerEvictionRun the number of idle objects to examine per run within the idle object eviction
+     * thread (if any) (see {@link #setNumTestsPerEvictionRun})
+     * @param minEvictableIdleTimeMillis the minimum number of milliseconds an object can sit idle in the pool before
+     * it is eligible for eviction (see {@link #setMinEvictableIdleTimeMillis})
+     * @param testWhileIdle whether or not to validate objects in the idle object eviction thread, if any
+     * (see {@link #setTestWhileIdle})
+     * @param softMinEvictableIdleTimeMillis the minimum number of milliseconds an object can sit idle in the
+     * pool before it is eligible for eviction with the extra condition that at least "minIdle" amount of object
+     * remain in the pool. (see {@link #setSoftMinEvictableIdleTimeMillis})
+     * @param lifo whether or not objects are returned in last-in-first-out order from the idle object pool
+     * (see {@link #setLifo})
      * @since Pool 1.4
      */
-    public GenericObjectPool(PoolableObjectFactory factory, int maxActive, byte whenExhaustedAction, long maxWait, int maxIdle, int minIdle, boolean testOnBorrow, boolean testOnReturn, long timeBetweenEvictionRunsMillis, int numTestsPerEvictionRun, long minEvictableIdleTimeMillis, boolean testWhileIdle, long softMinEvictableIdleTimeMillis, boolean lifo) {
+    public GenericObjectPool(PoolableObjectFactory factory, int maxActive, byte whenExhaustedAction, long maxWait,
+            int maxIdle, int minIdle, boolean testOnBorrow, boolean testOnReturn, long timeBetweenEvictionRunsMillis,
+            int numTestsPerEvictionRun, long minEvictableIdleTimeMillis, boolean testWhileIdle,
+            long softMinEvictableIdleTimeMillis, boolean lifo) {
         _factory = factory;
         _maxActive = maxActive;
         _lifo = lifo;
@@ -516,8 +602,12 @@ public class GenericObjectPool extends BaseObjectPool implements ObjectPool {
     //--- configuration methods --------------------------------------
 
     /**
-     * Returns the cap on the total number of active instances from the pool.
-     * @return the cap on the total number of active instances from the pool.
+     * Returns the maximum number of objects that can be allocated by the pool
+     * (checked out to clients, or idle awaiting checkout) at a given time.
+     * When non-positive, there is no limit to the number of objects that can
+     * be managed by the pool at one time.
+     *
+     * @return the cap on the total number of object instances managed by the pool.
      * @see #setMaxActive
      */
     public synchronized int getMaxActive() {
@@ -525,14 +615,20 @@ public class GenericObjectPool extends BaseObjectPool implements ObjectPool {
     }
 
     /**
-     * Sets the cap on the total number of active instances from the pool.
-     * @param maxActive The cap on the total number of active instances from the pool.
-     * Use a negative value for no limit.
+     * Sets the cap on the number of objects that can be allocated by the pool
+     * (checked out to clients, or idle awaiting checkout) at a given time. Use
+     * a negative value for no limit.
+     *
+     * @param maxActive The cap on the total number of object instances managed by the pool.
+     * Negative values mean that there is no limit to the number of objects allocated
+     * by the pool.
      * @see #getMaxActive
      */
-    public synchronized void setMaxActive(int maxActive) {
-        _maxActive = maxActive;
-        notifyAll();
+    public void setMaxActive(int maxActive) {
+        synchronized(this) {
+            _maxActive = maxActive;
+        }
+        allocate();
     }
 
     /**
@@ -557,17 +653,19 @@ public class GenericObjectPool extends BaseObjectPool implements ObjectPool {
      *        or {@link #WHEN_EXHAUSTED_GROW}
      * @see #getWhenExhaustedAction
      */
-    public synchronized void setWhenExhaustedAction(byte whenExhaustedAction) {
-        switch(whenExhaustedAction) {
-            case WHEN_EXHAUSTED_BLOCK:
-            case WHEN_EXHAUSTED_FAIL:
-            case WHEN_EXHAUSTED_GROW:
-                _whenExhaustedAction = whenExhaustedAction;
-                notifyAll();
-                break;
-            default:
-                throw new IllegalArgumentException("whenExhaustedAction " + whenExhaustedAction + " not recognized.");
+    public void setWhenExhaustedAction(byte whenExhaustedAction) {
+        synchronized(this) {
+            switch(whenExhaustedAction) {
+                case WHEN_EXHAUSTED_BLOCK:
+                case WHEN_EXHAUSTED_FAIL:
+                case WHEN_EXHAUSTED_GROW:
+                    _whenExhaustedAction = whenExhaustedAction;
+                    break;
+                default:
+                    throw new IllegalArgumentException("whenExhaustedAction " + whenExhaustedAction + " not recognized.");
+            }
         }
+        allocate();
     }
 
 
@@ -605,9 +703,11 @@ public class GenericObjectPool extends BaseObjectPool implements ObjectPool {
      * @see #setWhenExhaustedAction
      * @see #WHEN_EXHAUSTED_BLOCK
      */
-    public synchronized void setMaxWait(long maxWait) {
-        _maxWait = maxWait;
-        notifyAll();
+    public void setMaxWait(long maxWait) {
+        synchronized(this) {
+            _maxWait = maxWait;
+        }
+        allocate();
     }
 
     /**
@@ -621,19 +721,28 @@ public class GenericObjectPool extends BaseObjectPool implements ObjectPool {
 
     /**
      * Sets the cap on the number of "idle" instances in the pool.
+     * If maxIdle is set too low on heavily loaded systems it is possible you
+     * will see objects being destroyed and almost immediately new objects
+     * being created. This is a result of the active threads momentarily
+     * returning objects faster than they are requesting them them, causing the
+     * number of idle objects to rise above maxIdle. The best value for maxIdle
+     * for heavily loaded system will vary but the default is a good starting
+     * point.
      * @param maxIdle The cap on the number of "idle" instances in the pool.
      * Use a negative value to indicate an unlimited number of idle instances.
      * @see #getMaxIdle
      */
-    public synchronized void setMaxIdle(int maxIdle) {
-        _maxIdle = maxIdle;
-        notifyAll();
+    public void setMaxIdle(int maxIdle) {
+        synchronized(this) {
+            _maxIdle = maxIdle;
+        }
+        allocate();
     }
 
     /**
      * Sets the minimum number of objects allowed in the pool
      * before the evictor thread (if active) spawns new objects.
-     * Note that no objects are created when 
+     * Note that no objects are created when
      * <code>numActive + numIdle >= maxActive.</code>
      * This setting has no effect if the idle object evictor is disabled
      * (i.e. if <code>timeBetweenEvictionRunsMillis <= 0</code>).
@@ -642,9 +751,11 @@ public class GenericObjectPool extends BaseObjectPool implements ObjectPool {
      * @see #getMinIdle
      * @see #getTimeBetweenEvictionRunsMillis()
      */
-    public synchronized void setMinIdle(int minIdle) {
-        _minIdle = minIdle;
-        notifyAll();
+    public void setMinIdle(int minIdle) {
+        synchronized(this) {
+            _minIdle = minIdle;
+        }
+        allocate();
     }
 
     /**
@@ -759,8 +870,10 @@ public class GenericObjectPool extends BaseObjectPool implements ObjectPool {
      * idle object evictor thread (if any).
      * <p>
      * When a negative value is supplied, <tt>ceil({@link #getNumIdle})/abs({@link #getNumTestsPerEvictionRun})</tt>
-     * tests will be run.  I.e., when the value is <i>-n</i>, roughly one <i>n</i>th of the
-     * idle objects will be tested per run.
+     * tests will be run.  That is, when the value is <i>-n</i>, roughly one <i>n</i>th of the
+     * idle objects will be tested per run. When the value is positive, the number of tests
+     * actually performed in each run will be the minimum of this value and the number of instances
+     * idle in the pool.
      *
      * @param numTestsPerEvictionRun max number of objects to examine during each evictor run.
      * @see #getNumTestsPerEvictionRun
@@ -789,7 +902,8 @@ public class GenericObjectPool extends BaseObjectPool implements ObjectPool {
      * (if any).
      * When non-positive, no objects will be evicted from the pool
      * due to idle time alone.
-     * @param minEvictableIdleTimeMillis minimum amount of time an object may sit idle in the pool before it is eligible for eviction.
+     * @param minEvictableIdleTimeMillis minimum amount of time an object may sit idle in the pool before
+     * it is eligible for eviction.
      * @see #getMinEvictableIdleTimeMillis
      * @see #setTimeBetweenEvictionRunsMillis
      */
@@ -815,11 +929,12 @@ public class GenericObjectPool extends BaseObjectPool implements ObjectPool {
      * Sets the minimum amount of time an object may sit idle in the pool
      * before it is eligible for eviction by the idle object evictor
      * (if any), with the extra condition that at least
-     * "minIdle" amount of object remain in the pool.
+     * "minIdle" object instances remain in the pool.
      * When non-positive, no objects will be evicted from the pool
      * due to idle time alone.
      *
-     * @param softMinEvictableIdleTimeMillis minimum amount of time an object may sit idle in the pool before it is eligible for eviction.
+     * @param softMinEvictableIdleTimeMillis minimum amount of time an object may sit idle in the pool before
+     * it is eligible for eviction.
      * @since Pool 1.3
      * @see #getSoftMinEvictableIdleTimeMillis
      */
@@ -854,14 +969,14 @@ public class GenericObjectPool extends BaseObjectPool implements ObjectPool {
     public synchronized void setTestWhileIdle(boolean testWhileIdle) {
         _testWhileIdle = testWhileIdle;
     }
-    
+
     /**
      * Whether or not the idle object pool acts as a LIFO queue. True means
      * that borrowObject returns the most recently used ("last in") idle object
      * in the pool (if there are idle instances available).  False means that
      * the pool behaves as a FIFO queue - objects are taken from the idle object
      * pool in the order that they are returned to the pool.
-     * 
+     *
      * @return <code>true</true> if the pool is configured to act as a LIFO queue
      * @since 1.4
      */
@@ -875,7 +990,7 @@ public class GenericObjectPool extends BaseObjectPool implements ObjectPool {
       * idle instances available).  False means that the pool behaves as a FIFO
       * queue - objects are taken from the idle object pool in the order that
       * they are returned to the pool.
-      * 
+      *
       * @param lifo the new value for the LIFO property
       * @since 1.4
       */
@@ -889,121 +1004,228 @@ public class GenericObjectPool extends BaseObjectPool implements ObjectPool {
      * @param conf configuration to use.
      * @see GenericObjectPool.Config
      */
-    public synchronized void setConfig(GenericObjectPool.Config conf) {
-        setMaxIdle(conf.maxIdle);
-        setMinIdle(conf.minIdle);
-        setMaxActive(conf.maxActive);
-        setMaxWait(conf.maxWait);
-        setWhenExhaustedAction(conf.whenExhaustedAction);
-        setTestOnBorrow(conf.testOnBorrow);
-        setTestOnReturn(conf.testOnReturn);
-        setTestWhileIdle(conf.testWhileIdle);
-        setNumTestsPerEvictionRun(conf.numTestsPerEvictionRun);
-        setMinEvictableIdleTimeMillis(conf.minEvictableIdleTimeMillis);
-        setTimeBetweenEvictionRunsMillis(conf.timeBetweenEvictionRunsMillis);
-        setSoftMinEvictableIdleTimeMillis(conf.softMinEvictableIdleTimeMillis);
-        setLifo(conf.lifo);
-        notifyAll();
+    public void setConfig(GenericObjectPool.Config conf) {
+        synchronized (this) {
+            setMaxIdle(conf.maxIdle);
+            setMinIdle(conf.minIdle);
+            setMaxActive(conf.maxActive);
+            setMaxWait(conf.maxWait);
+            setWhenExhaustedAction(conf.whenExhaustedAction);
+            setTestOnBorrow(conf.testOnBorrow);
+            setTestOnReturn(conf.testOnReturn);
+            setTestWhileIdle(conf.testWhileIdle);
+            setNumTestsPerEvictionRun(conf.numTestsPerEvictionRun);
+            setMinEvictableIdleTimeMillis(conf.minEvictableIdleTimeMillis);
+            setTimeBetweenEvictionRunsMillis(conf.timeBetweenEvictionRunsMillis);
+            setSoftMinEvictableIdleTimeMillis(conf.softMinEvictableIdleTimeMillis);
+            setLifo(conf.lifo);
+        }
+        allocate();
     }
 
     //-- ObjectPool methods ------------------------------------------
 
+    /**
+     * <p>Borrows an object from the pool.</p>
+     * 
+     * <p>If there is an idle instance available in the pool, then either the most-recently returned
+     * (if {@link #getLifo() lifo} == true) or "oldest" (lifo == false) instance sitting idle in the pool
+     * will be activated and returned.  If activation fails, or {@link #getTestOnBorrow() testOnBorrow} is set
+     * to true and validation fails, the instance is destroyed and the next available instance is examined.
+     * This continues until either a valid instance is returned or there are no more idle instances available.</p>
+     * 
+     * <p>If there are no idle instances available in the pool, behavior depends on the {@link #getMaxActive() maxActive}
+     * and (if applicable) {@link #getWhenExhaustedAction() whenExhaustedAction} and {@link #getMaxWait() maxWait}
+     * properties. If the number of instances checked out from the pool is less than <code>maxActive,</code> a new
+     * instance is created, activated and (if applicable) validated and returned to the caller.</p>
+     * 
+     * <p>If the pool is exhausted (no available idle instances and no capacity to create new ones),
+     * this method will either block ({@link #WHEN_EXHAUSTED_BLOCK}), throw a <code>NoSuchElementException</code>
+     * ({@link #WHEN_EXHAUSTED_FAIL}), or grow ({@link #WHEN_EXHAUSTED_GROW} - ignoring maxActive).
+     * The length of time that this method will block when <code>whenExhaustedAction == WHEN_EXHAUSTED_BLOCK</code>
+     * is determined by the {@link #getMaxWait() maxWait} property.</p>
+     * 
+     * <p>When the pool is exhausted, multiple calling threads may be simultaneously blocked waiting for instances
+     * to become available.  As of pool 1.5, a "fairness" algorithm has been implemented to ensure that threads receive
+     * available instances in request arrival order.</p>
+     * 
+     * @return object instance
+     * @throws NoSuchElementException if an instance cannot be returned
+     */
     public Object borrowObject() throws Exception {
         long starttime = System.currentTimeMillis();
+        Latch latch = new Latch();
+        byte whenExhaustedAction;
+        long maxWait;
+        synchronized (this) {
+            // Get local copy of current config. Can't sync when used later as
+            // it can result in a deadlock. Has the added advantage that config
+            // is consistent for entire method execution
+            whenExhaustedAction = _whenExhaustedAction;
+            maxWait = _maxWait;
+
+            // Add this request to the queue
+            _allocationQueue.add(latch);
+        }
+        // Work the allocation queue, allocating idle instances and
+        // instance creation permits in request arrival order
+        allocate();
+
         for(;;) {
-            ObjectTimestampPair pair = null;
-            
             synchronized (this) {
                 assertOpen();
-                // if there are any sleeping, just grab one of those
-                try {
-                    pair = (ObjectTimestampPair)(_pool.removeFirst());
-                } catch(NoSuchElementException e) {
-                    ; /* ignored */
-                }
-    
-                // otherwise
-                if(null == pair) {
-                    // check if we can create one
-                    // (note we know that the num sleeping is 0, else we wouldn't be here)
-                    if(_maxActive < 0 || _numActive < _maxActive) {
-                        // allow new object to be created
-                    } else {
-                        // the pool is exhausted
-                        switch(_whenExhaustedAction) {
-                            case WHEN_EXHAUSTED_GROW:
-                                // allow new object to be created
-                                break;
-                            case WHEN_EXHAUSTED_FAIL:
-                                throw new NoSuchElementException("Pool exhausted");
-                            case WHEN_EXHAUSTED_BLOCK:
-                                try {
-                                    if(_maxWait <= 0) {
-                                        wait();
-                                    } else {
-                                        // this code may be executed again after a notify then continue cycle
-                                        // so, need to calculate the amount of time to wait
-                                        final long elapsed = (System.currentTimeMillis() - starttime);
-                                        final long waitTime = _maxWait - elapsed;
-                                        if (waitTime > 0)
-                                        {
-                                            wait(waitTime);
-                                        }
-                                    }
-                                } catch(InterruptedException e) {
-                                    Thread.currentThread().interrupt();
-                                    throw e; 
-                                }
-                                if(_maxWait > 0 && ((System.currentTimeMillis() - starttime) >= _maxWait)) {
-                                    throw new NoSuchElementException("Timeout waiting for idle object");
-                                } else {
-                                    continue; // keep looping
-                                }
-                            default:
-                                throw new IllegalArgumentException("WhenExhaustedAction property " + _whenExhaustedAction + " not recognized.");
-                        }
-                    }
-                }
-                _numActive++;
             }
 
-            // create new object when needed
+            // If no object was allocated from the pool above
+            if(latch.getPair() == null) {
+                // check if we were allowed to create one
+                if(latch.mayCreate()) {
+                    // allow new object to be created
+                } else {
+                    // the pool is exhausted
+                    switch(whenExhaustedAction) {
+                        case WHEN_EXHAUSTED_GROW:
+                            // allow new object to be created
+                            synchronized (this) {
+                                // Make sure another thread didn't allocate us an object
+                                // or permit a new object to be created
+                                if (latch.getPair() == null && !latch.mayCreate()) {
+                                    _allocationQueue.remove(latch);
+                                    _numInternalProcessing++;
+                                }
+                            }
+                            break;
+                        case WHEN_EXHAUSTED_FAIL:
+                            synchronized (this) {
+                                // Make sure allocate hasn't already assigned an object
+                                // in a different thread or permitted a new object to be created
+                                if (latch.getPair() != null || latch.mayCreate()) {
+                                    break;
+                                }
+                                _allocationQueue.remove(latch);
+                            }
+                            throw new NoSuchElementException("Pool exhausted");
+                        case WHEN_EXHAUSTED_BLOCK:
+                            try {
+                                synchronized (latch) {
+                                    // Before we wait, make sure another thread didn't allocate us an object
+                                    // or permit a new object to be created
+                                    if (latch.getPair() == null && !latch.mayCreate()) {
+                                        if(maxWait <= 0) {
+                                            latch.wait();
+                                        } else {
+                                            // this code may be executed again after a notify then continue cycle
+                                            // so, need to calculate the amount of time to wait
+                                            final long elapsed = (System.currentTimeMillis() - starttime);
+                                            final long waitTime = maxWait - elapsed;
+                                            if (waitTime > 0)
+                                            {
+                                                latch.wait(waitTime);
+                                            }
+                                        }
+                                    } else {
+                                        break;
+                                    }
+                                }
+                                // see if we were awakened by a closing pool
+                                if(isClosed() == true) {
+                                    throw new IllegalStateException("Pool closed");
+                                }
+                            } catch(InterruptedException e) {
+                                boolean doAllocate = false;
+                                synchronized(this) {
+                                    // Need to handle the all three possibilities
+                                    if (latch.getPair() == null && !latch.mayCreate()) {
+                                        // Case 1: latch still in allocation queue
+                                        // Remove latch from the allocation queue
+                                        _allocationQueue.remove(latch);
+                                    } else if (latch.getPair() == null && latch.mayCreate()) {
+                                        // Case 2: latch has been given permission to create
+                                        //         a new object
+                                        _numInternalProcessing--;
+                                        doAllocate = true;
+                                    } else {
+                                        // Case 3: An object has been allocated
+                                        _numInternalProcessing--;
+                                        _numActive++;
+                                        returnObject(latch.getPair().getValue());
+                                    }
+                                }
+                                if (doAllocate) {
+                                    allocate();
+                                }
+                                Thread.currentThread().interrupt();
+                                throw e;
+                            }
+                            if(maxWait > 0 && ((System.currentTimeMillis() - starttime) >= maxWait)) {
+                                synchronized(this) {
+                                    // Make sure allocate hasn't already assigned an object
+                                    // in a different thread or permitted a new object to be created
+                                    if (latch.getPair() == null && !latch.mayCreate()) {
+                                        // Remove latch from the allocation queue
+                                        _allocationQueue.remove(latch);
+                                    } else {
+                                        break;
+                                    }
+                                }
+                                throw new NoSuchElementException("Timeout waiting for idle object");
+                            } else {
+                                continue; // keep looping
+                            }
+                        default:
+                            throw new IllegalArgumentException("WhenExhaustedAction property " + whenExhaustedAction +
+                                    " not recognized.");
+                    }
+                }
+            }
+
             boolean newlyCreated = false;
-            if(null == pair) {
+            if(null == latch.getPair()) {
                 try {
                     Object obj = _factory.makeObject();
-                    pair = new ObjectTimestampPair(obj);
+                    latch.setPair(new ObjectTimestampPair(obj));
                     newlyCreated = true;
                 } finally {
                     if (!newlyCreated) {
                         // object cannot be created
                         synchronized (this) {
-                            _numActive--;
-                            notifyAll();
+                            _numInternalProcessing--;
+                            // No need to reset latch - about to throw exception
                         }
+                        allocate();
                     }
                 }
             }
-
             // activate & validate the object
             try {
-                _factory.activateObject(pair.value);
-                if(_testOnBorrow && !_factory.validateObject(pair.value)) {
+                _factory.activateObject(latch.getPair().value);
+                if(_testOnBorrow &&
+                        !_factory.validateObject(latch.getPair().value)) {
                     throw new Exception("ValidateObject failed");
                 }
-                return pair.value;
+                synchronized(this) {
+                    _numInternalProcessing--;
+                    _numActive++;
+                }
+                return latch.getPair().value;
             }
             catch (Throwable e) {
+                PoolUtils.checkRethrow(e);
                 // object cannot be activated or is invalid
                 try {
-                    _factory.destroyObject(pair.value);
+                    _factory.destroyObject(latch.getPair().value);
                 } catch (Throwable e2) {
+                    PoolUtils.checkRethrow(e2);
                     // cannot destroy broken object
                 }
                 synchronized (this) {
-                    _numActive--;
-                    notifyAll();
+                    _numInternalProcessing--;
+                    if (!newlyCreated) {
+                        latch.reset();
+                        _allocationQueue.add(0, latch);
+                    }
                 }
+                allocate();
                 if(newlyCreated) {
                     throw new NoSuchElementException("Could not create a validated object, cause: " + e.getMessage());
                 }
@@ -1014,6 +1236,50 @@ public class GenericObjectPool extends BaseObjectPool implements ObjectPool {
         }
     }
 
+    /**
+     * Allocate available instances to latches in the allocation queue.  Then
+     * set _mayCreate to true for as many additional latches remaining in queue
+     * as _maxActive allows. While it is safe for GOP, for consistency with GKOP
+     * this method should not be called from inside a sync block. 
+     */
+    private synchronized void allocate() {
+        if (isClosed()) return;
+
+        // First use any objects in the pool to clear the queue
+        for (;;) {
+            if (!_pool.isEmpty() && !_allocationQueue.isEmpty()) {
+                Latch latch = (Latch) _allocationQueue.removeFirst();
+                latch.setPair((ObjectTimestampPair) _pool.removeFirst());
+                _numInternalProcessing++;
+                synchronized (latch) {
+                    latch.notify();
+                }
+            } else {
+                break;
+            }
+        }
+
+        // Second utilise any spare capacity to create new objects
+        for(;;) {
+            if((!_allocationQueue.isEmpty()) && (_maxActive < 0 || (_numActive + _numInternalProcessing) < _maxActive)) {
+                Latch latch = (Latch) _allocationQueue.removeFirst();
+                latch.setMayCreate(true);
+                _numInternalProcessing++;
+                synchronized (latch) {
+                    latch.notify();
+                }
+            } else {
+                break;
+            }
+        }
+    }
+
+    /**
+     * {@inheritDoc}
+     * <p>Activation of this method decrements the active count and attempts to destroy the instance.</p>
+     * 
+     * @throws Exception if the configured {@link PoolableObjectFactory} throws an exception destroying obj
+     */
     public void invalidateObject(Object obj) throws Exception {
         try {
             if (_factory != null) {
@@ -1022,25 +1288,59 @@ public class GenericObjectPool extends BaseObjectPool implements ObjectPool {
         } finally {
             synchronized (this) {
                 _numActive--;
-                notifyAll(); // _numActive has changed
             }
+            allocate();
         }
     }
 
     /**
-     * Clears any objects sitting idle in the pool.
+     * Clears any objects sitting idle in the pool by removing them from the
+     * idle instance pool and then invoking the configured 
+     * {@link PoolableObjectFactory#destroyObject(Object)} method on each idle
+     * instance. 
+     * 
+     * <p> Implementation notes:
+     * <ul><li>This method does not destroy or effect in any way instances that are
+     * checked out of the pool when it is invoked.</li>
+     * <li>Invoking this method does not prevent objects being
+     * returned to the idle instance pool, even during its execution. It locks
+     * the pool only during instance removal. Additional instances may be returned
+     * while removed items are being destroyed.</li>
+     * <li>Exceptions encountered destroying idle instances are swallowed.</li></ul></p>
      */
-    public synchronized void clear() {
-        for(Iterator it = _pool.iterator(); it.hasNext(); ) {
+    public void clear() {
+        List toDestroy = new ArrayList();
+
+        synchronized(this) {
+            toDestroy.addAll(_pool);
+            _numInternalProcessing = _numInternalProcessing + _pool._size;
+            _pool.clear();
+        }
+        destroy(toDestroy, _factory);
+    }
+
+    /**
+     * Private method to destroy all the objects in a collection using the 
+     * supplied object factory.  Assumes that objects in the collection are
+     * instances of ObjectTimestampPair and that the object instances that
+     * they wrap were created by the factory.
+     * 
+     * @param c Collection of objects to destroy
+     * @param factory PoolableConnectionFactory used to destroy the objects
+     */
+    private void destroy(Collection c, PoolableObjectFactory factory) {
+        for (Iterator it = c.iterator(); it.hasNext();) {
             try {
-                _factory.destroyObject(((ObjectTimestampPair)(it.next())).value);
+                factory.destroyObject(((ObjectTimestampPair)(it.next())).value);
             } catch(Exception e) {
                 // ignore error, keep destroying the rest
+            } finally {
+                synchronized(this) {
+                    _numInternalProcessing--;
+                }
+                allocate();
             }
-            it.remove();
         }
-        _pool.clear();
-        notifyAll(); // num sleeping has changed
     }
 
     /**
@@ -1062,14 +1362,23 @@ public class GenericObjectPool extends BaseObjectPool implements ObjectPool {
     }
 
     /**
-     * {@inheritDoc}
+     * <p>Returns an object instance to the pool.</p>
+     * 
+     * <p>If {@link #getMaxIdle() maxIdle} is set to a positive value and the number of idle instances
+     * has reached this value, the returning instance is destroyed.</p>
+     * 
+     * <p>If {@link #getTestOnReturn() testOnReturn} == true, the returning instance is validated before being returned
+     * to the idle instance pool.  In this case, if validation fails, the instance is destroyed.</p>
+     * 
      * <p><strong>Note: </strong> There is no guard to prevent an object
      * being returned to the pool multiple times. Clients are expected to
      * discard references to returned objects and ensure that an object is not
      * returned to the pool multiple times in sequence (i.e., without being
      * borrowed again between returns). Violating this contract will result in
-     * the same object appearing multiple times in the pool and pool counters 
+     * the same object appearing multiple times in the pool and pool counters
      * (numActive, numIdle) returning incorrect values.</p>
+     * 
+     * @param obj instance to return to the pool
      */
     public void returnObject(Object obj) throws Exception {
         try {
@@ -1082,16 +1391,29 @@ public class GenericObjectPool extends BaseObjectPool implements ObjectPool {
                     // swallowed
                 }
                 // TODO: Correctness here depends on control in addObjectToPool.
-                // These two methods should be refactored, removing the 
-                // "behavior flag",decrementNumActive, from addObjectToPool.
+                // These two methods should be refactored, removing the
+                // "behavior flag", decrementNumActive, from addObjectToPool.
                 synchronized(this) {
                     _numActive--;
-                    notifyAll();
                 }
+                allocate();
             }
         }
     }
 
+    /**
+     * <p>Adds an object to the pool.</p>
+     * 
+     * <p>Validates the object if testOnReturn == true and passivates it before returning it to the pool.
+     * if validation or passivation fails, or maxIdle is set and there is no room in the pool, the instance
+     * is destroyed.</p>
+     * 
+     * <p>Calls {@link #allocate()} on successful completion</p>
+     * 
+     * @param obj instance to add to the pool
+     * @param decrementNumActive whether or not to decrement the active count
+     * @throws Exception
+     */
     private void addObjectToPool(Object obj, boolean decrementNumActive) throws Exception {
         boolean success = true;
         if(_testOnReturn && !(_factory.validateObject(obj))) {
@@ -1104,6 +1426,7 @@ public class GenericObjectPool extends BaseObjectPool implements ObjectPool {
 
         // Add instance to pool if there is room and it has passed validation
         // (if testOnreturn is set)
+        boolean doAllocate = false;
         synchronized (this) {
             if (isClosed()) {
                 shouldDestroy = true;
@@ -1118,33 +1441,59 @@ public class GenericObjectPool extends BaseObjectPool implements ObjectPool {
                     } else {
                         _pool.addLast(new ObjectTimestampPair(obj));
                     }
+                    if (decrementNumActive) {
+                        _numActive--;
+                    }
+                    doAllocate = true;
                 }
             }
         }
+        if (doAllocate) {
+            allocate();
+        }
 
-        // Destroy the instance if necessary 
+        // Destroy the instance if necessary
         if(shouldDestroy) {
             try {
                 _factory.destroyObject(obj);
             } catch(Exception e) {
                 // ignored
             }
-        }
-        
-        // Decrement active count *after* destroy if applicable
-        if (decrementNumActive) {
-            synchronized(this) {
-                _numActive--;
-                notifyAll();
+            // Decrement active count *after* destroy if applicable
+            if (decrementNumActive) {
+                synchronized(this) {
+                    _numActive--;
+                }
+                allocate();
             }
         }
+
     }
 
+    /**
+     * <p>Closes the pool.  Once the pool is closed, {@link #borrowObject()}
+     * will fail with IllegalStateException, but {@link #returnObject(Object)} and
+     * {@link #invalidateObject(Object)} will continue to work, with returned objects
+     * destroyed on return.</p>
+     * 
+     * <p>Destroys idle instances in the pool by invoking {@link #clear()}.</p> 
+     * 
+     * @throws Exception
+     */
     public void close() throws Exception {
         super.close();
         synchronized (this) {
             clear();
             startEvictor(-1L);
+
+            while(_allocationQueue.size() > 0) {
+                Latch l = (Latch) _allocationQueue.removeFirst();
+                
+                synchronized (l) {
+                    // notify the waiting thread
+                    l.notify();
+                }
+            }
         }
     }
 
@@ -1152,89 +1501,122 @@ public class GenericObjectPool extends BaseObjectPool implements ObjectPool {
      * Sets the {@link PoolableObjectFactory factory} this pool uses
      * to create new instances. Trying to change
      * the <code>factory</code> while there are borrowed objects will
-     * throw an {@link IllegalStateException}.
+     * throw an {@link IllegalStateException}.  If there are instances idle
+     * in the pool when this method is invoked, these will be destroyed
+     * using the original factory.
      *
      * @param factory the {@link PoolableObjectFactory} used to create new instances.
      * @throws IllegalStateException when the factory cannot be set at this time
+     * @deprecated to be removed in version 2.0
      */
-    public synchronized void setFactory(PoolableObjectFactory factory) throws IllegalStateException {
-        assertOpen();
-        if(0 < getNumActive()) {
-            throw new IllegalStateException("Objects are already active");
-        } else {
-            clear();
+    public void setFactory(PoolableObjectFactory factory) throws IllegalStateException {
+        List toDestroy = new ArrayList();
+        final PoolableObjectFactory oldFactory = _factory;
+        synchronized (this) {
+            assertOpen();
+            if(0 < getNumActive()) {
+                throw new IllegalStateException("Objects are already active");
+            } else {
+                toDestroy.addAll(_pool);
+                _numInternalProcessing = _numInternalProcessing + _pool._size;
+                _pool.clear();
+            }
             _factory = factory;
         }
+        destroy(toDestroy, oldFactory); 
     }
 
     /**
      * <p>Perform <code>numTests</code> idle object eviction tests, evicting
-     * examined objects that meet the criteria for eviction. If 
+     * examined objects that meet the criteria for eviction. If
      * <code>testWhileIdle</code> is true, examined objects are validated
      * when visited (and removed if invalid); otherwise only objects that
      * have been idle for more than <code>minEvicableIdletimeMillis</code>
      * are removed.</p>
-     * 
-     * <p>Successive activations of this method examine objects in 
+     *
+     * <p>Successive activations of this method examine objects in
      * in sequence, cycling through objects in oldest-to-youngest order.</p>
      *
      * @throws Exception if the pool is closed or eviction fails.
      */
-    public synchronized void evict() throws Exception {
+    public void evict() throws Exception {
         assertOpen();
-        if(!_pool.isEmpty()) {
+        synchronized (this) {
+            if(_pool.isEmpty()) {
+                return;
+            }
             if (null == _evictionCursor) {
                 _evictionCursor = (_pool.cursor(_lifo ? _pool.size() : 0));
-            }  
-            for (int i=0,m=getNumTests();i<m;i++) {
-                if ((_lifo && !_evictionCursor.hasPrevious()) || 
+            }
+        }
+
+        for (int i=0,m=getNumTests();i<m;i++) {
+            final ObjectTimestampPair pair;
+            synchronized (this) {
+                if ((_lifo && !_evictionCursor.hasPrevious()) ||
                         !_lifo && !_evictionCursor.hasNext()) {
                     _evictionCursor.close();
                     _evictionCursor = _pool.cursor(_lifo ? _pool.size() : 0);
                 }
-                boolean removeObject = false;
-                final ObjectTimestampPair pair = _lifo ? 
-                    (ObjectTimestampPair) _evictionCursor.previous() : 
-                    (ObjectTimestampPair) _evictionCursor.next();
-                final long idleTimeMilis = System.currentTimeMillis() - pair.tstamp;
-                if ((_minEvictableIdleTimeMillis > 0)
-                        && (idleTimeMilis > _minEvictableIdleTimeMillis)) {
-                    removeObject = true;
-                } else if ((_softMinEvictableIdleTimeMillis > 0)
-                        && (idleTimeMilis > _softMinEvictableIdleTimeMillis)
-                        && (getNumIdle() > getMinIdle())) {
-                    removeObject = true;
+
+                pair = _lifo ?
+                        (ObjectTimestampPair) _evictionCursor.previous() :
+                        (ObjectTimestampPair) _evictionCursor.next();
+
+                _evictionCursor.remove();
+                _numInternalProcessing++;
+            }
+
+            boolean removeObject = false;
+            final long idleTimeMilis = System.currentTimeMillis() - pair.tstamp;
+            if ((getMinEvictableIdleTimeMillis() > 0) &&
+                    (idleTimeMilis > getMinEvictableIdleTimeMillis())) {
+                removeObject = true;
+            } else if ((getSoftMinEvictableIdleTimeMillis() > 0) &&
+                    (idleTimeMilis > getSoftMinEvictableIdleTimeMillis()) &&
+                    ((getNumIdle() + 1)> getMinIdle())) { // +1 accounts for object we are processing
+                removeObject = true;
+            }
+            if(getTestWhileIdle() && !removeObject) {
+                boolean active = false;
+                try {
+                    _factory.activateObject(pair.value);
+                    active = true;
+                } catch(Exception e) {
+                    removeObject=true;
                 }
-                if(_testWhileIdle && !removeObject) {
-                    boolean active = false;
-                    try {
-                        _factory.activateObject(pair.value);
-                        active = true;
-                    } catch(Exception e) {
+                if(active) {
+                    if(!_factory.validateObject(pair.value)) {
                         removeObject=true;
-                    }
-                    if(active) {
-                        if(!_factory.validateObject(pair.value)) {
+                    } else {
+                        try {
+                            _factory.passivateObject(pair.value);
+                        } catch(Exception e) {
                             removeObject=true;
-                        } else {
-                            try {
-                                _factory.passivateObject(pair.value);
-                            } catch(Exception e) {
-                                removeObject=true;
-                            }
                         }
                     }
                 }
-                if(removeObject) {
-                    try {
-                        _evictionCursor.remove();
-                        _factory.destroyObject(pair.value);
-                    } catch(Exception e) {
-                        // ignored
-                    }
+            }
+
+            if (removeObject) {
+                try {
+                    _factory.destroyObject(pair.value);
+                } catch(Exception e) {
+                    // ignored
                 }
             }
-        } // if !empty
+            synchronized (this) {
+                if(!removeObject) {
+                    _evictionCursor.add(pair);
+                    if (_lifo) {
+                        // Skip over the element we just added back
+                        _evictionCursor.previous();
+                    }
+                }
+                _numInternalProcessing--;
+            }
+        }
+        allocate();
     }
 
     /**
@@ -1249,17 +1631,38 @@ public class GenericObjectPool extends BaseObjectPool implements ObjectPool {
         // as a loop limit and a second time inside the loop
         // to stop when another thread already returned the
         // needed objects
-        int objectDeficit = calculateDeficit();
-        for ( int j = 0 ; j < objectDeficit && calculateDeficit() > 0 ; j++ ) {
-            addObject();
+        int objectDeficit = calculateDeficit(false);
+        for ( int j = 0 ; j < objectDeficit && calculateDeficit(true) > 0 ; j++ ) {
+            try {
+                addObject();
+            } finally {
+                synchronized (this) {
+                    _numInternalProcessing--;
+                }
+                allocate();
+            }
         }
     }
 
-    private synchronized int calculateDeficit() {
+    /**
+     * This returns the number of objects to create during the pool
+     * sustain cycle. This will ensure that the minimum number of idle
+     * instances is maintained without going past the maxActive value.
+     *
+     * @param incrementInternal - Should the count of objects currently under
+     *                            some form of internal processing be
+     *                            incremented?
+     * @return The number of objects to be created
+     */
+    private synchronized int calculateDeficit(boolean incrementInternal) {
         int objectDeficit = getMinIdle() - getNumIdle();
         if (_maxActive > 0) {
-            int growLimit = Math.max(0, getMaxActive() - getNumActive() - getNumIdle());
+            int growLimit = Math.max(0,
+                    getMaxActive() - getNumActive() - getNumIdle() - _numInternalProcessing);
             objectDeficit = Math.min(objectDeficit, growLimit);
+        }
+        if (incrementInternal && objectDeficit >0) {
+            _numInternalProcessing++;
         }
         return objectDeficit;
     }
@@ -1268,7 +1671,7 @@ public class GenericObjectPool extends BaseObjectPool implements ObjectPool {
      * Create an object, and place it into the pool.
      * addObject() is useful for "pre-loading" a pool with idle objects.
      */
-    public synchronized void addObject() throws Exception {
+    public void addObject() throws Exception {
         assertOpen();
         if (_factory == null) {
             throw new IllegalStateException("Cannot add objects without a factory.");
@@ -1307,6 +1710,12 @@ public class GenericObjectPool extends BaseObjectPool implements ObjectPool {
         }
     }
 
+    /**
+     * Returns pool info including {@link #getNumActive()}, {@link #getNumIdle()}
+     * and a list of objects idle in the pool with their idle times.
+     * 
+     * @return string containing debug information
+     */
     synchronized String debugInfo() {
         StringBuffer buf = new StringBuffer();
         buf.append("Active: ").append(getNumActive()).append("\n");
@@ -1321,11 +1730,19 @@ public class GenericObjectPool extends BaseObjectPool implements ObjectPool {
         return buf.toString();
     }
 
+    /** 
+     * Returns the number of tests to be performed in an Evictor run,
+     * based on the current value of <code>numTestsPerEvictionRun</code>
+     * and the number of idle instances in the pool.
+     * 
+     * @see #setNumTestsPerEvictionRun
+     * @return the number of tests for the Evictor to run
+     */
     private int getNumTests() {
         if(_numTestsPerEvictionRun >= 0) {
             return Math.min(_numTestsPerEvictionRun, _pool.size());
         } else {
-            return(int)(Math.ceil((double)_pool.size()/Math.abs((double)_numTestsPerEvictionRun)));
+            return(int)(Math.ceil(_pool.size()/Math.abs((double)_numTestsPerEvictionRun)));
         }
     }
 
@@ -1336,11 +1753,19 @@ public class GenericObjectPool extends BaseObjectPool implements ObjectPool {
      * @see GenericObjectPool#setTimeBetweenEvictionRunsMillis
      */
     private class Evictor extends TimerTask {
+        /**
+         * Run pool maintenance.  Evict objects qualifying for eviction and then
+         * invoke {@link GenericObjectPool#ensureMinIdle()}.
+         */
         public void run() {
             try {
                 evict();
             } catch(Exception e) {
                 // ignored
+            } catch(OutOfMemoryError oome) {
+                // Log problem but give evictor thread a chance to continue in
+                // case error is recoverable
+                oome.printStackTrace(System.err);
             }
             try {
                 ensureMinIdle();
@@ -1353,10 +1778,12 @@ public class GenericObjectPool extends BaseObjectPool implements ObjectPool {
     /**
      * A simple "struct" encapsulating the
      * configuration information for a {@link GenericObjectPool}.
-     * @see GenericObjectPool#GenericObjectPool(org.apache.commons.pool.PoolableObjectFactory,org.apache.commons.pool.impl.GenericObjectPool.Config)
+     * @see GenericObjectPool#GenericObjectPool(org.apache.commons.pool.PoolableObjectFactory,
+     * org.apache.commons.pool.impl.GenericObjectPool.Config)
      * @see GenericObjectPool#setConfig
      */
     public static class Config {
+        //CHECKSTYLE: stop VisibilityModifier
         /**
          * @see GenericObjectPool#setMaxIdle
          */
@@ -1409,8 +1836,64 @@ public class GenericObjectPool extends BaseObjectPool implements ObjectPool {
          * @see GenericObjectPool#setLifo
          */
         public boolean lifo = GenericObjectPool.DEFAULT_LIFO;
-    
+        //CHECKSTYLE: resume VisibilityModifier
     }
+
+    /**
+     * Latch used to control allocation order of objects to threads to ensure
+     * fairness. That is, objects are allocated to threads in the order that
+     * threads request objects.
+     */
+    private static final class Latch {
+        
+        /** object timestamp pair allocated to this latch */
+        private ObjectTimestampPair _pair;
+        
+        /** Whether or not this latch may create an object instance */
+        private boolean _mayCreate = false;
+
+        /**
+         * Returns ObjectTimestampPair allocated to this latch
+         * @return ObjectTimestampPair allocated to this latch
+         */
+        private synchronized ObjectTimestampPair getPair() {
+            return _pair;
+        }
+        
+        /**
+         * Sets ObjectTimestampPair on this latch
+         * @param pair ObjectTimestampPair allocated to this latch
+         */
+        private synchronized void setPair(ObjectTimestampPair pair) {
+            _pair = pair;
+        }
+
+        /**
+         * Whether or not this latch may create an object instance 
+         * @return true if this latch has an instance creation permit
+         */
+        private synchronized boolean mayCreate() {
+            return _mayCreate;
+        }
+        
+        /**
+         * Sets the mayCreate property
+         * @param mayCreate new value for mayCreate
+         */
+        private synchronized void setMayCreate(boolean mayCreate) {
+            _mayCreate = mayCreate;
+        }
+
+        /**
+         * Reset the latch data. Used when an allocation fails and the latch
+         * needs to be re-added to the queue.
+         */
+        private synchronized void reset() {
+            _pair = null;
+            _mayCreate = false;
+        }
+    }
+
 
     //--- private attributes ---------------------------------------
 
@@ -1559,10 +2042,10 @@ public class GenericObjectPool extends BaseObjectPool implements ObjectPool {
 
     /** Whether or not the pool behaves as a LIFO queue (last in first out) */
     private boolean _lifo = DEFAULT_LIFO;
-    
+
     /** My pool. */
     private CursorableLinkedList _pool = null;
-    
+
     /** Eviction cursor - keeps track of idle object evictor position */
     private CursorableLinkedList.Cursor _evictionCursor = null;
 
@@ -1579,5 +2062,19 @@ public class GenericObjectPool extends BaseObjectPool implements ObjectPool {
      * My idle object eviction {@link TimerTask}, if any.
      */
     private Evictor _evictor = null;
+
+    /**
+     * The number of objects subject to some form of internal processing
+     * (usually creation or destruction) that should be included in the total
+     * number of objects but are neither active nor idle.
+     */
+    private int _numInternalProcessing = 0;
+
+    /**
+     * Used to track the order in which threads call {@link #borrowObject()} so
+     * that objects can be allocated in the order in which the threads requested
+     * them.
+     */
+    private final LinkedList _allocationQueue = new LinkedList();
 
 }

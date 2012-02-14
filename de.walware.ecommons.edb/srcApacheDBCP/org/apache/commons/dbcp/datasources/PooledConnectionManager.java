@@ -17,49 +17,39 @@
 
 package org.apache.commons.dbcp.datasources;
 
+import java.sql.SQLException;
 import javax.sql.PooledConnection;
 
 /**
- * Immutable poolable object holding a PooledConnection along with the username and password 
- * used to create the connection.
+ * Methods to manage PoolableConnections and the connection pools that source them.
  * 
+ * @since 1.3
  * @version $Revision: 907288 $ $Date: 2010-02-06 14:42:58 -0500 (Sat, 06 Feb 2010) $
  */
-final class PooledConnectionAndInfo {
-    private final PooledConnection pooledConnection;
-    private final String password;
-    private final String username;
-    private final UserPassKey upkey;
-    
-    PooledConnectionAndInfo(PooledConnection pc, String username, String password) {
-        this.pooledConnection = pc;
-        this.username = username;
-        this.password = password;
-        upkey = new UserPassKey(username, password);
-    }
-
-    final PooledConnection getPooledConnection() {
-        return pooledConnection;
-    }
-
-    final UserPassKey getUserPassKey() {
-        return upkey;
-    }
-
+interface PooledConnectionManager {
     /**
-     * Get the value of password.
-     * @return value of password.
+     * Close the PooledConnection and remove it from the connection pool
+     * to which it belongs, adjusting pool counters.
+     * 
+     * @param pc PooledConnection to be invalidated
+     * @throws SQLException if an SQL error occurs closing the connection
      */
-    final String getPassword() {
-        return password;
-    }
+    void invalidate(PooledConnection pc) throws SQLException;
     
     /**
-     * Get the value of username.
-     * @return value of username.
+     * Sets the databsase password used when creating connections.
+     * 
+     * @param password password used when authenticating to the database
      */
-    final String getUsername() {
-        return username;
-    }
+    void setPassword(String password);
+    
+    
+    /**
+     * Closes the connection pool associated with the given user.
+     * 
+     * @param username user name
+     * @throws SQLException if an error occurs closing idle connections in the pool
+     */
+    void closePool(String username) throws SQLException;
     
 }

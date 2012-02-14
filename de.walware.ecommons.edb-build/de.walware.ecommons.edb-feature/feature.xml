@@ -2,7 +2,7 @@
 <feature
       id="de.walware.ecommons.edb"
       label="Commons - Embedded Database"
-      version="0.1.1.qualifier"
+      version="0.2.0.qualifier"
       provider-name="WalWare.de"
       license-feature="de.walware.opensource.license"
       license-feature-version="1.0.0">

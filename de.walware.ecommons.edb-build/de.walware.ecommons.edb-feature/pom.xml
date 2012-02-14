@@ -7,12 +7,12 @@
 	<parent>
 		<groupId>de.walware.ecommons</groupId>
 		<artifactId>ecommons-edb</artifactId>
-		<version>0.1.1-SNAPSHOT</version>
+		<version>0.2-SNAPSHOT</version>
 	</parent>
 	
 	<groupId>de.walware.ecommons-packaging</groupId>
 	<artifactId>de.walware.ecommons.edb</artifactId>
-	<version>0.1.1-SNAPSHOT</version>
+	<version>0.2.0-SNAPSHOT</version>
 	<packaging>eclipse-feature</packaging>
 	<name>Eclipse Feature: Commons - Embedded Database</name>
 	

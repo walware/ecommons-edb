@@ -5,9 +5,9 @@
  * The ASF licenses this file to You under the Apache License, Version 2.0
  * (the "License"); you may not use this file except in compliance with
  * the License.  You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -28,14 +28,15 @@ import org.apache.commons.pool.PoolableObjectFactory;
  * @see StackKeyedObjectPoolFactory
  *
  * @author Rodney Waldhoff
- * @version $Revision: 480413 $ $Date: 2006-11-28 22:16:05 -0700 (Tue, 28 Nov 2006) $
+ * @version $Revision: 960705 $ $Date: 2010-07-05 14:19:10 -0700 (Mon, 05 Jul 2010) $
  * @since Pool 1.0
  */
 public class StackObjectPoolFactory implements ObjectPoolFactory {
     /**
      * Create a new StackObjectPoolFactory.
-     * 
+     *
      * @see StackObjectPool#StackObjectPool()
+     * @deprecated to be removed in pool 2.0 - use {@link #StackObjectPoolFactory(PoolableObjectFactory)}
      */
     public StackObjectPoolFactory() {
         this((PoolableObjectFactory)null,StackObjectPool.DEFAULT_MAX_SLEEPING,StackObjectPool.DEFAULT_INIT_SLEEPING_CAPACITY);
@@ -46,6 +47,7 @@ public class StackObjectPoolFactory implements ObjectPoolFactory {
      *
      * @param maxIdle cap on the number of "sleeping" instances in the pool.
      * @see StackObjectPool#StackObjectPool(int)
+     * @deprecated to be removed in pool 2.0 - use {@link #StackObjectPoolFactory(PoolableObjectFactory, int)}
      */
     public StackObjectPoolFactory(int maxIdle) {
         this((PoolableObjectFactory)null,maxIdle,StackObjectPool.DEFAULT_INIT_SLEEPING_CAPACITY);
@@ -55,8 +57,10 @@ public class StackObjectPoolFactory implements ObjectPoolFactory {
      * Create a new StackObjectPoolFactory.
      *
      * @param maxIdle cap on the number of "sleeping" instances in the pool.
-     * @param initIdleCapacity - initial size of the pool (this specifies the size of the container, it does not cause the pool to be pre-populated.)
+     * @param initIdleCapacity - initial size of the pool (this specifies the size of the container,
+     * it does not cause the pool to be pre-populated.)
      * @see StackObjectPool#StackObjectPool(int, int)
+     * @deprecated to be removed in pool 2.0 - use {@link #StackObjectPoolFactory(PoolableObjectFactory, int, int)}
      */
     public StackObjectPoolFactory(int maxIdle, int initIdleCapacity) {
         this((PoolableObjectFactory)null,maxIdle,initIdleCapacity);
@@ -87,7 +91,8 @@ public class StackObjectPoolFactory implements ObjectPoolFactory {
      *
      * @param factory the PoolableObjectFactory used by created pools.
      * @param maxIdle cap on the number of "sleeping" instances in the pool.
-     * @param initIdleCapacity - initial size of the pool (this specifies the size of the container, it does not cause the pool to be pre-populated.)
+     * @param initIdleCapacity - initial size of the pool (this specifies the size of the container,
+     * it does not cause the pool to be pre-populated.)
      */
     public StackObjectPoolFactory(PoolableObjectFactory factory, int maxIdle, int initIdleCapacity) {
         _factory = factory;
@@ -95,12 +100,61 @@ public class StackObjectPoolFactory implements ObjectPoolFactory {
         _initCapacity = initIdleCapacity;
     }
 
+    /**
+     * Create a StackObjectPool.
+     * 
+     * @return a new StackObjectPool with the configured factory, maxIdle and initial capacity settings
+     */
     public ObjectPool createPool() {
         return new StackObjectPool(_factory,_maxSleeping,_initCapacity);
     }
 
+    /**
+     * The PoolableObjectFactory used by created pools.
+     * @deprecated to be made private in pool 2.0
+     */
     protected PoolableObjectFactory _factory = null;
+    
+    /**
+     * The maximum number of idle instances in created pools.
+     * @deprecated to be made private in pool 2.0
+     */
     protected int _maxSleeping = StackObjectPool.DEFAULT_MAX_SLEEPING;
+    
+    /**
+     * The initial size of created pools.
+     * @deprecated to be made private in pool 2.0
+     */
     protected int _initCapacity = StackObjectPool.DEFAULT_INIT_SLEEPING_CAPACITY;
+
+    /**
+     * Returns the factory used by created pools.
+     * 
+     * @return the PoolableObjectFactory used by created pools
+     * @since 1.5.5
+     */
+    public PoolableObjectFactory getFactory() {
+        return _factory;
+    }
+
+    /**
+     * Returns the maxIdle setting for created pools.
+     * 
+     * @return the maximum number of idle instances in created pools
+     * @since 1.5.5
+     */
+    public int getMaxSleeping() {
+        return _maxSleeping;
+    }
+
+    /**
+     * Returns the initial capacity of created pools.
+     * 
+     * @return size of created containers (created pools are not pre-populated)
+     * @since 1.5.5
+     */
+    public int getInitCapacity() {
+        return _initCapacity;
+    }
 
 }

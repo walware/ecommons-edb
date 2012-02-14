@@ -5,9 +5,9 @@
  * The ASF licenses this file to You under the Apache License, Version 2.0
  * (the "License"); you may not use this file except in compliance with
  * the License.  You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -19,11 +19,11 @@ package org.apache.commons.pool;
 
 /**
  * A factory interface for creating {@link ObjectPool}s.
- * 
+ *
  * @see ObjectPool
  *
  * @author Rodney Waldhoff
- * @version $Revision: 480413 $ $Date: 2006-11-28 22:16:05 -0700 (Tue, 28 Nov 2006) $
+ * @version $Revision: 777748 $ $Date: 2009-05-22 17:00:44 -0700 (Fri, 22 May 2009) $
  * @since Pool 1.0
  */
 public interface ObjectPoolFactory {

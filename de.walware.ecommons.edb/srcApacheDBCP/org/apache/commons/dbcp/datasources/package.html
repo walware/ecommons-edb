@@ -31,7 +31,7 @@ J2EE containers will provide some way of deploying resources into JNDI.  The
 method will vary among containers, but once the resource is available via
 JNDI, the application can access the resource in a container independent
 manner.  The following example shows deployment into tomcat (catalina).  
-
+</p>
 <p>In server.xml, the following would be added to the &lt;Context&gt; for your
 webapp:
 </p>
@@ -82,7 +82,7 @@ described in the servlet specification:
 
 
 <p>
-Catalina deploys all objects configured similarly to above within the
+Apache Tomcat deploys all objects configured similarly to above within the
 <strong>java:comp/env</strong> namespace.  So the JNDI path given for
 the dataSourceName parameter is valid for a 
 <code>ConnectionPoolDataSource</code> that is deployed as given in the

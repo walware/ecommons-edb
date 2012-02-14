@@ -5,9 +5,9 @@
  * The ASF licenses this file to You under the Apache License, Version 2.0
  * (the "License"); you may not use this file except in compliance with
  * the License.  You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -57,7 +57,7 @@ import java.util.NoSuchElementException;
  *
  * @author Rodney Waldhoff
  * @author Sandy McArthur
- * @version $Revision: 480413 $ $Date: 2006-11-28 22:16:05 -0700 (Tue, 28 Nov 2006) $
+ * @version $Revision: 962893 $ $Date: 2010-07-10 10:37:27 -0700 (Sat, 10 Jul 2010) $
  * @see KeyedPoolableObjectFactory
  * @see KeyedObjectPoolFactory
  * @see ObjectPool
@@ -97,36 +97,30 @@ public interface KeyedObjectPool {
      * By contract, <code>obj</code> <strong>must</strong> have been obtained
      * using {@link #borrowObject borrowObject}
      * or a related method as defined in an implementation
-     * or sub-interface 
+     * or sub-interface
      * using a <code>key</code> that is equivalent to the one used to
      * borrow the instance in the first place.
      *
      * @param key the key used to obtain the object
      * @param obj a {@link #borrowObject borrowed} instance to be returned.
-     * @throws Exception <b>deprecated</b>: as of Pool 2.0 pool implementations should swallow
-     * exceptions that occur when a poolable object is returned. For future source compatability
-     * implementations of this method should not even declare that they throw any exception.
+     * @throws Exception 
      */
     void returnObject(Object key, Object obj) throws Exception;
 
     /**
-     * Invalidates an object from the pool
-     * By contract, <code>obj</code> <strong>must</strong> have been obtained
-     * using {@link #borrowObject borrowObject}
-     * or a related method as defined in an implementation
-     * or sub-interface 
-     * using a <code>key</code> that is equivalent to the one used to
-     * borrow the <code>Object</code> in the first place.
-     * <p>
-     * This method should be used when an object that has been borrowed
-     * is determined (due to an exception or other problem) to be invalid.
-     * </p>
+     * <p>Invalidates an object from the pool.</p>
+     * 
+     * <p>By contract, <code>obj</code> <strong>must</strong> have been obtained
+     * using {@link #borrowObject borrowObject} or a related method as defined
+     * in an implementation or sub-interface using a <code>key</code> that is
+     * equivalent to the one used to borrow the <code>Object</code> in the first place.</p>
+     *
+     * <p>This method should be used when an object that has been borrowed
+     * is determined (due to an exception or other problem) to be invalid.</p>
      *
      * @param key the key used to obtain the object
      * @param obj a {@link #borrowObject borrowed} instance to be returned.
-     * @throws Exception <b>deprecated</b>: as of Pool 2.0 pool implementations should swallow
-     * exceptions that occur when a poolable object is returned. For future source compatability
-     * implementations of this method should not even declare that they throw any exception.
+     * @throws Exception 
      */
     void invalidateObject(Object key, Object obj) throws Exception;
 
@@ -215,7 +209,7 @@ public interface KeyedObjectPool {
      * this method on a pool will cause them to throw an {@link IllegalStateException}.
      * </p>
      *
-     * @throws Exception <strong>deprecated</strong>: implementations should silently fail if not all resources can be freed.
+     * @throws Exception
      */
     void close() throws Exception;
 
@@ -229,6 +223,7 @@ public interface KeyedObjectPool {
      * @param factory the {@link KeyedPoolableObjectFactory} used to create new instances.
      * @throws IllegalStateException when the factory cannot be set at this time
      * @throws UnsupportedOperationException when this implementation doesn't support the operation
+     * @deprecated to be removed in pool 2.0
      */
     void setFactory(KeyedPoolableObjectFactory factory) throws IllegalStateException, UnsupportedOperationException;
 }

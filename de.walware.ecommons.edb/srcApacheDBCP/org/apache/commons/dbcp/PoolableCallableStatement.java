@@ -17,8 +17,8 @@
 
 package org.apache.commons.dbcp;
 
+import java.sql.CallableStatement;
 import java.sql.Connection;
-import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.List;
@@ -26,40 +26,37 @@ import java.util.List;
 import org.apache.commons.pool.KeyedObjectPool;
 
 /**
- * A {@link DelegatingPreparedStatement} that cooperates with
- * {@link PoolingConnection} to implement a pool of {@link PreparedStatement}s.
+ * A {@link DelegatingCallableStatement} that cooperates with
+ * {@link PoolingConnection} to implement a pool of {@link CallableStatement}s.
  * <p>
- * My {@link #close} method returns me to my containing pool. (See {@link PoolingConnection}.)
+ * The {@link #close} method returns this statement to its containing pool. (See {@link PoolingConnection}.)
  *
  * @see PoolingConnection
- * @author Rodney Waldhoff
- * @author Glenn L. Nielsen
- * @author James House
- * @author Dirk Verbeeck
- * @version $Revision: 745860 $ $Date: 2009-02-19 08:45:07 -0500 (Thu, 19 Feb 2009) $
+ * @version $Revision: 883040 $ $Date: 2009-11-22 01:01:20 -0500 (Sun, 22 Nov 2009) $
+ * @since 1.3
  */
-public class PoolablePreparedStatement extends DelegatingPreparedStatement implements PreparedStatement {
-    /**
-     * The {@link KeyedObjectPool} from which I was obtained.
-     */
-    protected KeyedObjectPool _pool = null;
+public class PoolableCallableStatement extends DelegatingCallableStatement implements CallableStatement {
 
     /**
-     * My "key" as used by {@link KeyedObjectPool}.
+     * The {@link KeyedObjectPool} from which this CallableStatement was obtained.
      */
-    protected Object _key = null;
-
-    private volatile boolean batchAdded = false;
+    private final KeyedObjectPool _pool;
 
     /**
-     * Constructor
-     * @param stmt my underlying {@link PreparedStatement}
-     * @param key my key" as used by {@link KeyedObjectPool}
-     * @param pool the {@link KeyedObjectPool} from which I was obtained.
-     * @param conn the {@link Connection} from which I was created
+     * Key for this statement in the containing {@link KeyedObjectPool}.
      */
-    public PoolablePreparedStatement(PreparedStatement stmt, Object key, KeyedObjectPool pool, Connection conn) {
-        super((DelegatingConnection) conn, stmt);
+    private final Object _key;
+
+    /**
+     * Constructor.
+     * 
+     * @param stmt the underlying {@link CallableStatement}
+     * @param key the key for this statement in the {@link KeyedObjectPool}
+     * @param pool the {@link KeyedObjectPool} from which this CallableStatement was obtained
+     * @param conn the {@link Connection} that created this CallableStatement
+     */
+    public PoolableCallableStatement(CallableStatement stmt, Object key, KeyedObjectPool pool, Connection conn) {
+        super((DelegatingConnection)conn, stmt);
         _pool = pool;
         _key = key;
 
@@ -71,23 +68,7 @@ public class PoolablePreparedStatement extends DelegatingPreparedStatement imple
     }
 
     /**
-     * Add batch.
-     */
-    public void addBatch() throws SQLException {
-        super.addBatch();
-        batchAdded = true;
-    }
-
-    /**
-     * Clear Batch.
-     */
-    public void clearBatch() throws SQLException {
-        batchAdded = false;
-        super.clearBatch();
-    }
-
-    /**
-     * Return me to my pool.
+     * Returns the CallableStatement to the pool.  If {{@link #isClosed()}, this is a No-op.
      */
     public void close() throws SQLException {
         // calling close twice should have no effect
@@ -99,41 +80,46 @@ public class PoolablePreparedStatement extends DelegatingPreparedStatement imple
             } catch(RuntimeException e) {
                 throw e;
             } catch(Exception e) {
-                throw new SQLNestedException("Cannot close preparedstatement (return to pool failed)", e);
+                throw new SQLNestedException("Cannot close CallableStatement (return to pool failed)", e);
             }
         }
     }
-    
-    protected void activate() throws SQLException{
+
+    /**
+     * Activates after retrieval from the pool. Adds a trace for this CallableStatement to the Connection
+     * that created it.
+     */
+    protected void activate() throws SQLException {
         _closed = false;
-        if(_conn != null) {
-            _conn.addTrace(this);
+        if( _conn != null ) {
+            _conn.addTrace( this );
         }
         super.activate();
     }
-  
+
+    /**
+     * Passivates to prepare for return to the pool.  Removes the trace associated with this CallableStatement
+     * from the Connection that created it.  Also closes any associated ResultSets.
+     */
     protected void passivate() throws SQLException {
         _closed = true;
-        if(_conn != null) {
+        if( _conn != null ) {
             _conn.removeTrace(this);
         }
 
         // The JDBC spec requires that a statment close any open
         // ResultSet's when it is closed.
         // FIXME The PreparedStatement we're wrapping should handle this for us.
-        // See bug 17301 for what could happen when ResultSets are closed twice.
+        // See DBCP-10 for what could happen when ResultSets are closed twice.
         List resultSets = getTrace();
-        if( resultSets != null) {
-            ResultSet[] set = (ResultSet[]) resultSets.toArray(new ResultSet[resultSets.size()]);
-            for (int i = 0; i < set.length; i++) {
+        if(resultSets != null) {
+            ResultSet[] set = (ResultSet[])resultSets.toArray(new ResultSet[resultSets.size()]);
+            for(int i = 0; i < set.length; i++) {
                 set[i].close();
             }
             clearTrace();
         }
-        if (batchAdded) {
-            clearBatch();
-        }
-        
+
         super.passivate();
     }
 

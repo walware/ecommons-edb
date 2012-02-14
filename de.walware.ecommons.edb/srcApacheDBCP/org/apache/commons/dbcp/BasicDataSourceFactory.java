@@ -22,6 +22,8 @@ import java.sql.Connection;
 import java.util.Enumeration;
 import java.util.Hashtable;
 import java.util.Properties;
+import java.util.StringTokenizer;
+import java.util.Collections;
 
 import javax.naming.Context;
 import javax.naming.Name;
@@ -39,7 +41,7 @@ import javax.sql.DataSource;
  *
  * @author Craig R. McClanahan
  * @author Dirk Verbeeck
- * @version $Revision: 491655 $ $Date: 2007-01-01 15:05:30 -0700 (Mon, 01 Jan 2007) $
+ * @version $Revision: 828639 $ $Date: 2009-10-22 06:27:43 -0400 (Thu, 22 Oct 2009) $
  */
 public class BasicDataSourceFactory implements ObjectFactory {
 
@@ -63,6 +65,13 @@ public class BasicDataSourceFactory implements ObjectFactory {
     private final static String PROP_URL = "url";
     private final static String PROP_USERNAME = "username";
     private final static String PROP_VALIDATIONQUERY = "validationQuery";
+    private final static String PROP_VALIDATIONQUERY_TIMEOUT = "validationQueryTimeout";
+    /**
+     * The property name for initConnectionSqls.
+     * The associated value String must be of the form [query;]*
+     * @since 1.3
+     */
+    private final static String PROP_INITCONNECTIONSQLS = "initConnectionSqls";
     private final static String PROP_ACCESSTOUNDERLYINGCONNECTIONALLOWED = "accessToUnderlyingConnectionAllowed";
     private final static String PROP_REMOVEABANDONED = "removeAbandoned";
     private final static String PROP_REMOVEABANDONEDTIMEOUT = "removeAbandonedTimeout";
@@ -92,6 +101,8 @@ public class BasicDataSourceFactory implements ObjectFactory {
         PROP_URL,
         PROP_USERNAME,
         PROP_VALIDATIONQUERY,
+        PROP_VALIDATIONQUERY_TIMEOUT,
+        PROP_INITCONNECTIONSQLS,
         PROP_ACCESSTOUNDERLYINGCONNECTIONALLOWED,
         PROP_REMOVEABANDONED,
         PROP_REMOVEABANDONEDTIMEOUT,
@@ -282,6 +293,11 @@ public class BasicDataSourceFactory implements ObjectFactory {
             dataSource.setValidationQuery(value);
         }
 
+        value = properties.getProperty(PROP_VALIDATIONQUERY_TIMEOUT);
+        if (value != null) {
+            dataSource.setValidationQueryTimeout(Integer.parseInt(value));
+        }
+        
         value = properties.getProperty(PROP_ACCESSTOUNDERLYINGCONNECTIONALLOWED);
         if (value != null) {
             dataSource.setAccessToUnderlyingConnectionAllowed(Boolean.valueOf(value).booleanValue());
@@ -312,6 +328,12 @@ public class BasicDataSourceFactory implements ObjectFactory {
             dataSource.setMaxOpenPreparedStatements(Integer.parseInt(value));
         }
 
+        value = properties.getProperty(PROP_INITCONNECTIONSQLS);
+        if (value != null) {
+            StringTokenizer tokenizer = new StringTokenizer(value, ";");
+            dataSource.setConnectionInitSqls(Collections.list(tokenizer));
+        }
+
         value = properties.getProperty(PROP_CONNECTIONPROPERTIES);
         if (value != null) {
           Properties p = getProperties(value);
@@ -320,6 +342,12 @@ public class BasicDataSourceFactory implements ObjectFactory {
             String propertyName = (String) e.nextElement();
             dataSource.addConnectionProperty(propertyName, p.getProperty(propertyName));
           }
+        }
+
+        // DBCP-215
+        // Trick to make sure that initialSize connections are created
+        if (dataSource.getInitialSize() > 0) {
+            dataSource.getLogWriter();
         }
 
         // Return the configured DataSource instance

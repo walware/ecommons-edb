@@ -31,10 +31,11 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.util.Collection;
+import java.util.List;
 import java.util.ArrayList;
 
 // to do:
-//  + add support for arrays
 //  + add support for strings as CDATA (makes multiline strings easier, for example)
 //  ? some kind of support for invoking methods?
 
@@ -73,7 +74,7 @@ import java.util.ArrayList;
  * <pre> &lt;object class="java.util.Date"/&gt;
  * &lt;object class="java.util.Date"/&gt;</pre>
  * The {@link #getTypeArray} method
- * will return an composed
+ * will return an array composed
  * of two instances of <tt>java.util.Date</tt>.  The sequence of
  * {@link java.lang.Object <tt>Object</tt>s} in the array
  * will correspond to the sequence of <tt>&lt;object&gt;</tt> elements in the JOCL fragment.
@@ -89,7 +90,7 @@ import java.util.ArrayList;
  * will add an instance of <tt>mypackage.Foo</tt> to the object list, constructed via
  * <tt>new mypackage.Foo(new mypackage.Bar())</tt>.
  * <p>
- * There is a special syntax available creating primative values and arguments,
+ * There is a special syntax available creating primitive values and arguments,
  * as well as for constructing {@link java.lang.String <tt>String</tt>}s. Some examples:
  * <p>
  * <pre> &lt;byte value="3"/&gt;
@@ -105,7 +106,7 @@ import java.util.ArrayList;
  * When invoked at the "root" level (that is, with no <tt>&lt;object&gt;</tt> parent),
  * this will cause the corresponding "object wrapper" to be added to the list of
  * {@link java.lang.Object <tt>Object</tt>}s.  The {@link #getType type} for these
- * objects will reflect the proper primative type, however.  When invoked with an
+ * objects will reflect the proper primitive type, however.  When invoked with an
  * <tt>&lt;object&gt;</tt> parent, these will be treated as primitive arguments to the
  * specified {@link java.lang.Object <tt>Object</tt>}'s constructor.  For example, while:
  * <p>
@@ -166,7 +167,7 @@ import java.util.ArrayList;
  * Formally, a DTD for the JOCL grammar is as follows:
  * <p>
  * <pre>
- * &lt;!ELEMENT object (object|byte|boolean|char|double|float|int|long|short|string)*&gt;
+ * &lt;!ELEMENT object (object|array|collection|list|byte|boolean|char|double|float|int|long|short|string)*&gt;
  * &lt;!ATTLIST object
  *   class CDATA #REQUIRED
  *   null (true|false) "false"&gt;
@@ -213,7 +214,7 @@ import java.util.ArrayList;
  * <b>Note that this class is not synchronized.</b>
  * <p>
  * @author Rodney Waldhoff
- * @version $Revision: 491655 $ $Date: 2007-01-01 15:05:30 -0700 (Mon, 01 Jan 2007) $
+ * @version $Revision: 883416 $ $Date: 2009-11-23 12:12:14 -0500 (Mon, 23 Nov 2009) $
  */
 public class JOCLContentHandler extends DefaultHandler {
 
@@ -429,10 +430,16 @@ public class JOCLContentHandler extends DefaultHandler {
                     String isnullstr = getAttributeValue(ATT_ISNULL,attr,"false");
                     boolean isnull = ("true".equalsIgnoreCase(isnullstr) || "yes".equalsIgnoreCase(isnullstr));
                     _cur = new ConstructorDetails(cname,_cur,isnull);
+                } else if(ELT_ARRAY.equals(localName)) {
+                    _cur = new ConstructorDetails(Object[].class,_cur,false,true);
+                } else if(ELT_COLLECTION.equals(localName)) {
+                    _cur = new ConstructorDetails(Collection.class,_cur,false,true);
+                } else if(ELT_LIST.equals(localName)) {
+                    _cur = new ConstructorDetails(List.class,_cur,false,true);
                 } else if(ELT_BOOLEAN.equals(localName)) {
                     String valstr = getAttributeValue(ATT_VALUE,attr,"false");
                     boolean val = ("true".equalsIgnoreCase(valstr) || "yes".equalsIgnoreCase(valstr));
-                    addObject(Boolean.TYPE,new Boolean(val));
+                    addObject(Boolean.TYPE,Boolean.valueOf(val));
                 } else if(ELT_BYTE.equals(localName)) {
                     byte val = Byte.parseByte(getAttributeValue(ATT_VALUE,attr,"0"));
                     addObject(Byte.TYPE,new Byte(val));
@@ -471,7 +478,9 @@ public class JOCLContentHandler extends DefaultHandler {
                     // unrecognized JOCL element warning?
                 }
             }
-        } catch(Exception e) {
+        } catch(NumberFormatException e) {
+            throw new SAXException(e);
+        } catch(ClassNotFoundException e) {
             throw new SAXException(e);
         }
     }
@@ -479,7 +488,8 @@ public class JOCLContentHandler extends DefaultHandler {
     public void endElement(String uri, String localName, String qname) throws SAXException {
         try {
             if(isJoclNamespace(uri,localName,qname)) {
-                if(ELT_OBJECT.equals(localName)) {
+                if(ELT_OBJECT.equals(localName) || ELT_ARRAY.equals(localName)
+                    || ELT_COLLECTION.equals(localName) || ELT_LIST.equals(localName)) {
                     ConstructorDetails temp = _cur;
                     _cur = _cur.getParent();
                     if(null == _cur) {
@@ -660,6 +670,21 @@ public class JOCLContentHandler extends DefaultHandler {
     /** The name of the "object" element. */
     protected static final String ELT_OBJECT  = "object";
 
+    /** The name of the "array" element.
+     * @since 1.2.2
+     */
+    protected static final String ELT_ARRAY  = "array";
+
+    /** The name of the "collection" element.
+     * @since 1.2.2
+     */
+    protected static final String ELT_COLLECTION  = "collection";
+
+    /** The name of the "list" element.
+     * @since 1.2.2
+     */
+    protected static final String ELT_LIST = "list";
+
     /** The name of the "object" element's "class" attribute. */
     protected static final String ATT_CLASS   = "class";
 
@@ -696,27 +721,39 @@ public class JOCLContentHandler extends DefaultHandler {
     /** The name of the "value" attribute. */
     protected static final String ATT_VALUE   = "value";
 
-    class ConstructorDetails {
+    static class ConstructorDetails {
         private ConstructorDetails _parent = null;
         private Class _type = null;
         private ArrayList _argTypes = null;
         private ArrayList _argValues = null;
         private boolean _isnull = false;
+        private boolean _isgroup = false;
 
         public ConstructorDetails(String classname, ConstructorDetails parent) throws ClassNotFoundException {
-            this(Class.forName(classname),parent,false);
+            this(Class.forName(classname),parent,false,false);
         }
 
         public ConstructorDetails(String classname, ConstructorDetails parent, boolean isnull) throws ClassNotFoundException {
-            this(Class.forName(classname),parent,isnull);
+            this(Class.forName(classname),parent,isnull,false);
         }
 
-        public ConstructorDetails(Class type, ConstructorDetails parent, boolean isnull) {
+        /**
+         * @since 1.3
+         */
+        public ConstructorDetails(String classname, ConstructorDetails parent, boolean isnull, boolean isgroup) throws ClassNotFoundException {
+            this(Class.forName(classname),parent,isnull,isgroup);
+        }
+
+        /**
+         * @since 1.3
+         */
+        public ConstructorDetails(Class type, ConstructorDetails parent, boolean isnull, boolean isgroup) {
             _parent = parent;
             _type = type;
             _argTypes = new ArrayList();
             _argValues = new ArrayList();
             _isnull = isnull;
+            _isgroup = isgroup;
         }
 
         public void addArgument(Object value) {
@@ -739,9 +776,17 @@ public class JOCLContentHandler extends DefaultHandler {
             return _parent;
         }
 
-        public Object createObject() throws InstantiationException, ClassNotFoundException, IllegalAccessException, InvocationTargetException {
+        public Object createObject() throws InstantiationException, IllegalAccessException, InvocationTargetException {
             if(_isnull) {
                 return null;
+            } else if( _isgroup ) {
+                if (_type.equals(Object[].class)) {
+                    return _argValues.toArray();
+                } else if (_type.equals(Collection.class) || _type.equals(List.class)) {
+                    return _argValues;
+                } else {
+                    throw new IllegalStateException("implementation error: unhandled _type:" + _type);
+                }
             } else {
                 Class k = getType();
                 Class[] argtypes = (Class[])_argTypes.toArray(new Class[0]);
