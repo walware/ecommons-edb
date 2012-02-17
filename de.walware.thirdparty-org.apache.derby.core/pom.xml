@@ -13,7 +13,24 @@
 	
 	<groupId>de.walware.ecommons</groupId>
 	<artifactId>de.walware.thirdparty-org.apache.derby.core</artifactId>
-	<version>10.8.1000002-SNAPSHOT</version>
+	<version>10.8.2000002-SNAPSHOT</version>
 	<packaging>eclipse-plugin</packaging>
+	
+	<build>
+		<plugins>
+			<!-- disable source bundle generation (no sources) -->
+			<plugin>
+				<groupId>org.eclipse.tycho</groupId>
+				<artifactId>tycho-source-plugin</artifactId>
+				<version>${tycho.version}</version>
+				<executions>
+					<execution>
+						<id>plugin-source</id>
+						<phase>none</phase>
+					</execution>
+				</executions>
+			</plugin>
+		</plugins>
+	</build>
 	
 </project>
