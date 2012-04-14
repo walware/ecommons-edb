@@ -2,6 +2,7 @@ package de.walware.ecommons.edb;
 
 import java.sql.Connection;
 import java.sql.Driver;
+import java.sql.SQLException;
 
 import javax.sql.DataSource;
 
@@ -24,6 +25,13 @@ public class EmbeddedDB {
 	
 	
 	public static DataSource createConnectionPool(final String uri) throws CoreException {
+		final ConnectionFactory connectionFactory = createConnectionFactory(uri);
+		final ObjectPool connectionPool = new GenericObjectPool(null);
+		new PoolableConnectionFactory(connectionFactory, connectionPool, null, null, false, true); // registers itself
+		return new PoolingDataSource(connectionPool);
+	}
+	
+	public static ConnectionFactory createConnectionFactory(final String uri) throws CoreException {
 		if (System.getProperty("derby.system.home") == null) {
 			final IPath location = Activator.getDefault().getStateLocation();
 			System.setProperty("derby.system.home", location.toOSString());
@@ -39,13 +47,7 @@ public class EmbeddedDB {
 			final Connection connection = driver.connect(dbUrl, null);
 			connection.close();
 			
-//			final EmbeddedConnectionPoolDataSource dataSource = new EmbeddedConnectionPoolDataSource();
-//			dataSource.setDatabaseName(uri);
-//			return dataSource;
-			final ObjectPool connectionPool = new GenericObjectPool(null);
-			final ConnectionFactory connectionFactory = new DriverConnectionFactory(driver, "jdbc:derby:"+uri, null);
-			new PoolableConnectionFactory(connectionFactory, connectionPool, null, null, false, true); // registers itself
-			return new PoolingDataSource(connectionPool);
+			return new DriverConnectionFactory(driver, "jdbc:derby:"+uri, null);
 		}
 		catch (final Exception e) {
 			final StringBuilder message = new StringBuilder("An error occurred when loading embedded DB");
@@ -57,6 +59,36 @@ public class EmbeddedDB {
 			}
 			throw new CoreException(new Status(IStatus.ERROR, Activator.PLUGIN_ID, -1, message.toString(), e));
 		}
+	}
+	
+	public static void shutdown(final String uri) throws CoreException {
+		if (System.getProperty("derby.system.home") == null) {
+			return;
+		}
+		final String driverName = "org.apache.derby.jdbc.EmbeddedDriver";
+		final String dbUrl = "jdbc:derby:"+uri+";shutdown=true";
+		Driver driver = null;
+		try {
+//			driver = (Driver) Class.forName(driverName, true, EmbeddedDB.class.getClassLoader()).newInstance();
+			driver = new EmbeddedDriver();
+			
+			final Connection connection = driver.connect(dbUrl, null);
+			connection.close();
+		}
+		catch (final Exception e) {
+			if (e instanceof SQLException && "08006".equals(((SQLException) e).getSQLState())) {
+				return;
+			}
+			final StringBuilder message = new StringBuilder("An error occurred when closing embedded DB");
+			message.append(" (Derby + DBCP)");
+			message.append("\n\tDB ConnectionURL=").append(uri);
+			message.append("\n\tDriver Name=").append(driverName);
+			if (driver != null) {
+				message.append(", Version=").append(driver.getMajorVersion()).append(".").append(driver.getMinorVersion());
+			}
+			throw new CoreException(new Status(IStatus.ERROR, Activator.PLUGIN_ID, -1, message.toString(), e));
+		}
+		
 	}
 	
 }
