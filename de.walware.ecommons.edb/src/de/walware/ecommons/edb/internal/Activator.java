@@ -27,13 +27,13 @@ public class Activator extends Plugin {
 	
 	
 	@Override
-	public void start(BundleContext context) throws Exception {
+	public void start(final BundleContext context) throws Exception {
 		super.start(context);
 		gPlugin = this;
 	}
 	
 	@Override
-	public void stop(BundleContext context) throws Exception {
+	public void stop(final BundleContext context) throws Exception {
 		gPlugin = null;
 		super.stop(context);
 	}
