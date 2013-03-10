@@ -3,10 +3,11 @@
 
 <target name="all">
 	<locations>
-		<location includeAllPlatforms="false" includeMode="slicer" includeSource="false"
+		<location includeAllPlatforms="false" includeMode="planner" includeConfigurePhase="false" includeSource="false"
 				type="InstallableUnit">
 			<repository location="http://download.eclipse.org/releases/helios"/>
-			<unit id="org.eclipse.rcp.feature.group" version="3.6.2.r362_v20101104-9SAxFMKFkSAqi8axkv1ZjegmiBLY"/>
+			<unit id="org.eclipse.rcp.feature.group"
+					version="3.6.2.r362_v20101104-9SAxFMKFkSAqi8axkv1ZjegmiBLY"/>
 		</location>
 	</locations>
 </target>

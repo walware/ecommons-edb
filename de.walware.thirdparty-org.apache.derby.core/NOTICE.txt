@@ -1,8 +1,8 @@
-This product includes software developed by
-The Apache Software Foundation (http://www.apache.org/).
-
 Apache Derby
 Copyright 2004-2009 The Apache Software Foundation
+
+This product includes software developed by
+The Apache Software Foundation (http://www.apache.org/).
 
 Portions of Derby were originally developed by
 International Business Machines Corporation and are
