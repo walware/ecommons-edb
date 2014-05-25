@@ -1,0 +1,16 @@
+Manifest-Version: 1.0
+Bundle-ManifestVersion: 2
+Bundle-Name: Apache Derby Core
+Bundle-SymbolicName: de.walware.3rdparty-org.apache.derby.core;singleton:=true
+Bundle-Version: 10.10.2000000.qualifier
+Bundle-Vendor: WalWare.de
+Bundle-Activator: org.apache.derby.osgi.EmbeddedActivator
+Bundle-ActivationPolicy: lazy
+Bundle-RequiredExecutionEnvironment: JavaSE-1.7
+Bundle-ClassPath: binDerby/
+Import-Package: org.osgi.framework;version="1.4.0"
+Export-Package: org.apache.derby.authentication,
+ org.apache.derby.database,
+ org.apache.derby.io,
+ org.apache.derby.jdbc,
+ org.apache.derby.vti

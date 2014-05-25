@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8" standalone="no"?>
-<?pde version="3.6"?>
+<?pde version="3.8"?>
 
 <target name="all">
 	<locations>
@@ -8,6 +8,12 @@
 			<repository location="http://download.eclipse.org/releases/helios"/>
 			<unit id="org.eclipse.rcp.feature.group"
 					version="3.6.2.r362_v20101104-9SAxFMKFkSAqi8axkv1ZjegmiBLY"/>
+		</location>
+		<location includeAllPlatforms="false" includeMode="planner" includeConfigurePhase="false" includeSource="false"
+				type="InstallableUnit">
+			<repository location="http://download.eclipse.org/tools/orbit/downloads/drops/R20140114142710/repository"/>
+			<unit id="org.apache.commons.logging"
+					version="1.1.1.v201101211721"/>
 		</location>
 	</locations>
 </target>
