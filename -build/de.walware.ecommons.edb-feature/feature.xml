@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <feature
       id="de.walware.ecommons.edb"
-      label="Commons - Embedded Database"
-      version="0.3.0.qualifier"
+      label="ECommons Embedded DB"
+      version="0.3.1.qualifier"
       provider-name="WalWare.de"
       license-feature="de.walware.opensource.license"
       license-feature-version="1.0.0">
@@ -12,7 +12,7 @@
    </description>
 
    <copyright>
-      Copyright (c) 2003-2014 Stephan Wahlbrink and others. All rights reserved.
+      Copyright (c) 2003-2015 Stephan Wahlbrink and others. All rights reserved.
    </copyright>
 
    <license url="%license_url">
@@ -28,13 +28,6 @@
 
    <plugin
          id="de.walware.3rdparty-org.apache.derby.core"
-         download-size="0"
-         install-size="0"
-         version="0.0.0"
-         unpack="false"/>
-
-   <plugin
-         id="de.walware.3rdparty-org.apache.commons.pool"
          download-size="0"
          install-size="0"
          version="0.0.0"

@@ -11,9 +11,9 @@
 	</parent>
 	
 	<groupId>de.walware.ecommons-packaging</groupId>
-	<artifactId>de.walware.ecommons.edb</artifactId>
-	<version>0.3.0-SNAPSHOT</version>
-	<packaging>eclipse-feature</packaging>
-	<name>Eclipse Feature: Commons - Embedded Database</name>
+	<artifactId>de.walware.ecommons.edb-repo</artifactId>
+	<version>0.3.1-SNAPSHOT</version>
+	<packaging>eclipse-repository</packaging>
+	<name>WalWare.de - ECommons Embedded DB</name>
 	
 </project>

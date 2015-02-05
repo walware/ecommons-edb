@@ -8,12 +8,12 @@
 		<groupId>de.walware.ecommons</groupId>
 		<artifactId>ecommons-edb</artifactId>
 		<version>0.3-SNAPSHOT</version>
-		<relativePath>../-build</relativePath>
 	</parent>
 	
-	<groupId>de.walware.ecommons</groupId>
+	<groupId>de.walware.ecommons-packaging</groupId>
 	<artifactId>de.walware.ecommons.edb</artifactId>
 	<version>0.3.1-SNAPSHOT</version>
-	<packaging>eclipse-plugin</packaging>
+	<packaging>eclipse-feature</packaging>
+	<name>Eclipse Feature: ECommons Embedded DB</name>
 	
 </project>
