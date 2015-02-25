@@ -37,7 +37,7 @@ import org.apache.commons.dbcp2.DelegatingPreparedStatement;
  * underlying connection.
  *
  * @author John D. McNally
- * @version $Revision$ $Date$
+ * @version $Id$
  * @since 2.0
  */
 class ConnectionImpl extends DelegatingConnection<Connection> {
@@ -52,7 +52,7 @@ class ConnectionImpl extends DelegatingConnection<Connection> {
      *
      * @param pooledConnection The PooledConnection that is calling the ctor.
      * @param connection The JDBC 1.x Connection to wrap.
-     * @param accessToUnderlyingConnectionAllowed if true, then access is allowed to the underlying connectiion
+     * @param accessToUnderlyingConnectionAllowed if true, then access is allowed to the underlying connection
      */
     ConnectionImpl(PooledConnectionImpl pooledConnection,
             Connection connection,

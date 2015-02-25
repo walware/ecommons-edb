@@ -42,7 +42,7 @@ import org.apache.commons.pool2.impl.DefaultPooledObject;
  * @see PoolablePreparedStatement
  * @author Rodney Waldhoff
  * @author Dirk Verbeeck
- * @version $Revision$ $Date$
+ * @version $Id$
  * @since 2.0
  */
 public class PoolingConnection extends DelegatingConnection<Connection>
@@ -296,7 +296,7 @@ public class PoolingConnection extends DelegatingConnection<Connection>
 
     /**
      * Normalize the given SQL statement, producing a
-     * cannonical form that is semantically equivalent to the original.
+     * canonical form that is semantically equivalent to the original.
      */
     protected String normalizeSQL(String sql) {
         return sql.trim();
@@ -365,7 +365,7 @@ public class PoolingConnection extends DelegatingConnection<Connection>
      *
      * @param key ignored
      * @param p ignored
-     * @return <tt>true</tt>
+     * @return {@code true}
      */
     @Override
     public boolean validateObject(PStmtKey key,

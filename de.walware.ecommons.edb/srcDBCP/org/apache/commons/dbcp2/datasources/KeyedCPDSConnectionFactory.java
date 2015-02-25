@@ -38,11 +38,11 @@ import org.apache.commons.pool2.PooledObject;
 import org.apache.commons.pool2.impl.DefaultPooledObject;
 
 /**
- * A {*link PoolableObjectFactory} that creates
- * {*link PoolableConnection}s.
+ * A {@link KeyedPooledObjectFactory} that creates
+ * {@link org.apache.commons.dbcp2.PoolableConnection PoolableConnection}s.
  *
  * @author John D. McNally
- * @version $Revision$ $Date$
+ * @version $Id$
  * @since 2.0
  */
 class KeyedCPDSConnectionFactory
@@ -75,12 +75,12 @@ class KeyedCPDSConnectionFactory
 
 
     /**
-     * Create a new <tt>KeyedPoolableConnectionFactory</tt>.
+     * Create a new {@code KeyedPoolableConnectionFactory}.
      * @param cpds the ConnectionPoolDataSource from which to obtain
      * PooledConnections
      * @param validationQuery a query to use to {@link #validateObject validate}
      * {@link Connection}s.  Should return at least one row. May be
-     * <tt>null</tt> in which case3 {@link Connection#isValid(int)} will be used
+     * {@code null} in which case3 {@link Connection#isValid(int)} will be used
      * to validate connections.
      * @param rollbackAfterValidation whether a rollback should be issued after
      * {@link #validateObject validating} {@link Connection}s.
@@ -160,7 +160,7 @@ class KeyedCPDSConnectionFactory
      * @param key ignored
      * @param p wrapped {@link PooledConnectionAndInfo} containing the
      *          connection to validate
-     * @return true if validation suceeds
+     * @return true if validation succeeds
      */
     @Override
     public boolean validateObject(UserPassKey key,

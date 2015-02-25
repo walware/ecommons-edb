@@ -88,7 +88,7 @@ import org.apache.commons.pool2.impl.GenericKeyedObjectPoolConfig;
  * </p>
  *
  * @author John D. McNally
- * @version $Revision$ $Date$
+ * @version $Id$
  * @since 2.0
  */
 public class DriverAdapterCPDS
@@ -685,7 +685,7 @@ public class DriverAdapterCPDS
     }
 
     /**
-     * Returns the maximun number of prepared statements.
+     * Returns the maximum number of prepared statements.
      *
      * @return maxPrepartedStatements value
      */
