@@ -12,7 +12,7 @@
 	
 	<groupId>de.walware.ecommons-packaging</groupId>
 	<artifactId>de.walware.ecommons.edb</artifactId>
-	<version>0.3.1-SNAPSHOT</version>
+	<version>0.3.2-SNAPSHOT</version>
 	<packaging>eclipse-feature</packaging>
 	<name>Eclipse Feature: ECommons Embedded DB</name>
 	
