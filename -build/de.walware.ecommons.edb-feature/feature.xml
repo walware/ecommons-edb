@@ -2,7 +2,7 @@
 <feature
       id="de.walware.ecommons.edb"
       label="ECommons Embedded DB"
-      version="0.3.2.qualifier"
+      version="0.4.0.qualifier"
       provider-name="WalWare.de"
       license-feature="de.walware.opensource.license"
       license-feature-version="1.0.0">
@@ -28,13 +28,6 @@
 
    <plugin
          id="de.walware.3rdparty-org.apache.derby.core"
-         download-size="0"
-         install-size="0"
-         version="0.0.0"
-         unpack="false"/>
-
-   <plugin
-         id="org.apache.commons.logging"
          download-size="0"
          install-size="0"
          version="0.0.0"

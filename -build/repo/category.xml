@@ -10,5 +10,8 @@
 	<feature id="de.walware.3rdparty.commons.pool" version="0.0.0">
 		<category name="de.walware.libraries"/>
 	</feature>
+	<feature id="de.walware.3rdparty.commons.dbcp2" version="0.0.0">
+		<category name="de.walware.libraries"/>
+	</feature>
 	
 </site>

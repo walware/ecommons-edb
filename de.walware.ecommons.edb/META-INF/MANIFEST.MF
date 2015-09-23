@@ -3,13 +3,13 @@ Bundle-ManifestVersion: 2
 Bundle-Vendor: WalWare.de
 Bundle-Name: ECommons Embedded DB
 Bundle-SymbolicName: de.walware.ecommons.edb;singleton:=true
-Bundle-Version: 0.3.2.qualifier
+Bundle-Version: 0.4.0.qualifier
 Bundle-Activator: de.walware.ecommons.edb.internal.Activator
 Bundle-ActivationPolicy: lazy
 Bundle-RequiredExecutionEnvironment: JavaSE-1.7
 Require-Bundle: org.eclipse.core.runtime,
  org.apache.commons.logging,
- org.apache.commons.pool;bundle-version="[2.4,2.5)",
+ org.apache.commons.pool;bundle-version="[2.4.0,2.5.0)",
+ org.apache.commons.dbcp2;bundle-version="[2.1.1,2.2.0)",
  de.walware.3rdparty-org.apache.derby.core;bundle-version="10.10.0"
-Export-Package: de.walware.ecommons.edb,
- org.apache.commons.dbcp2
+Export-Package: de.walware.ecommons.edb
